@@ -35,9 +35,13 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use('/api/auth', authLimiter);
 
 // Health
-app.get('/health', (_req, res) => {
-    res.json({ ok: true });
-});
+const health = (req, res) => {
+    return res.status(200).json({
+        message: `Blogcafeai Server is Running, Server health is green`,
+    });
+};
+
+app.get('/', health);
 
 // Routes
 app.use('/api/auth', authRoutes);
