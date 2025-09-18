@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import slugify from 'slugify';
 import Category from '../models/Category.model.js';
+import { uploadBufferToS3 } from '../utils/s3.js';
 
 export async function listCategories(_req, res) {
-    const cats = await Category.find().sort({ name: 1 }).select('name slug description');
+    const cats = await Category.find().sort({ name: 1 }).select('name slug description imageUrl');
     res.json({ success: true, data: cats });
 }
 
@@ -13,7 +14,16 @@ export async function adminCreateCategory(req, res, next) {
     try {
         const input = upsertSchema.parse(req.body);
         const slug = slugify(input.name, { lower: true, strict: true });
-        const cat = await Category.create({ name: input.name, description: input.description, slug });
+        let imageUrl;
+        if (req.file && req.file.buffer) {
+            const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+            if (!allowed.includes(req.file.mimetype)) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid image type' } });
+            }
+            const uploaded = await uploadBufferToS3({ buffer: req.file.buffer, contentType: req.file.mimetype, keyPrefix: 'category-images' });
+            imageUrl = uploaded.publicUrl;
+        }
+        const cat = await Category.create({ name: input.name, description: input.description, slug, imageUrl });
         res.status(201).json({ success: true, category: cat });
     } catch (err) {
         if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
@@ -32,6 +42,14 @@ export async function adminUpdateCategory(req, res, next) {
             cat.slug = slugify(input.name, { lower: true, strict: true });
         }
         if (input.description !== undefined) cat.description = input.description;
+        if (req.file && req.file.buffer) {
+            const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+            if (!allowed.includes(req.file.mimetype)) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid image type' } });
+            }
+            const uploaded = await uploadBufferToS3({ buffer: req.file.buffer, contentType: req.file.mimetype, keyPrefix: 'category-images' });
+            cat.imageUrl = uploaded.publicUrl;
+        }
         await cat.save();
         res.json({ success: true, category: cat });
     } catch (err) {

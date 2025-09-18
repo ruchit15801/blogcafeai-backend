@@ -3,6 +3,7 @@ import slugify from 'slugify';
 import sanitizeHtml from 'sanitize-html';
 import BlogPost from '../models/BlogPost.model.js';
 import { computeReadTimeMinutesFromHtml } from '../utils/readtime.js';
+import { uploadBufferToS3 } from '../utils/s3.js';
 
 const listQuerySchema = z.object({
     page: z.string().optional(),
@@ -79,7 +80,36 @@ const createSchema = z.object({
 
 export async function createPost(req, res, next) {
     try {
-        const input = createSchema.parse(req.body);
+        // Normalize multipart fields
+        const body = { ...req.body };
+        if (typeof body.imageUrls === 'string') body.imageUrls = [body.imageUrls];
+        if (typeof body.tags === 'string') body.tags = [body.tags];
+        if (Array.isArray(body.tags)) body.tags = body.tags.filter(Boolean);
+        if (Array.isArray(body.imageUrls)) body.imageUrls = body.imageUrls.filter(Boolean);
+
+        // Handle file uploads if provided
+        const files = req.files || {};
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+        if (files.bannerImage && files.bannerImage[0]) {
+            const file = files.bannerImage[0];
+            if (!allowed.includes(file.mimetype)) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid banner image type' } });
+            }
+            const uploaded = await uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-banners' });
+            body.bannerImageUrl = uploaded.publicUrl;
+        }
+        if (files.images && Array.isArray(files.images) && files.images.length > 0) {
+            const uploads = [];
+            for (const file of files.images) {
+                if (!allowed.includes(file.mimetype)) continue;
+                uploads.push(uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-images' }));
+            }
+            const results = await Promise.all(uploads);
+            const urls = results.map(r => r.publicUrl);
+            body.imageUrls = urls;
+        }
+
+        const input = createSchema.parse(body);
         let baseSlug = slugify(input.title, { lower: true, strict: true });
         let slug = baseSlug;
         let n = 1;
@@ -115,7 +145,35 @@ const updateSchema = createSchema.partial();
 export async function updatePost(req, res, next) {
     try {
         const { id } = req.params;
-        const input = updateSchema.parse(req.body);
+        const body = { ...req.body };
+        if (typeof body.imageUrls === 'string') body.imageUrls = [body.imageUrls];
+        if (typeof body.tags === 'string') body.tags = [body.tags];
+        if (Array.isArray(body.tags)) body.tags = body.tags.filter(Boolean);
+        if (Array.isArray(body.imageUrls)) body.imageUrls = body.imageUrls.filter(Boolean);
+
+        // Handle new uploads, append to imageUrls if provided
+        const files = req.files || {};
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+        if (files.bannerImage && files.bannerImage[0]) {
+            const file = files.bannerImage[0];
+            if (!allowed.includes(file.mimetype)) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid banner image type' } });
+            }
+            const uploaded = await uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-banners' });
+            body.bannerImageUrl = uploaded.publicUrl;
+        }
+        if (files.images && Array.isArray(files.images) && files.images.length > 0) {
+            const uploads = [];
+            for (const file of files.images) {
+                if (!allowed.includes(file.mimetype)) continue;
+                uploads.push(uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-images' }));
+            }
+            const results = await Promise.all(uploads);
+            const urls = results.map(r => r.publicUrl);
+            body.imageUrls = Array.isArray(body.imageUrls) ? [...body.imageUrls, ...urls] : urls;
+        }
+
+        const input = updateSchema.parse(body);
         const post = await BlogPost.findById(id);
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
         if (String(post.author) !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot edit' } });

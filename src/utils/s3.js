@@ -22,4 +22,31 @@ export async function getPresignedUploadUrl({ contentType }) {
     return { uploadURL, publicUrl, key };
 }
 
+export async function uploadBufferToS3({ buffer, contentType, keyPrefix = 'uploads' }) {
+    const bucket = process.env.S3_BUCKET;
+    const extensionFromType = (type) => {
+        if (!type) return '';
+        const map = {
+            'image/jpeg': 'jpg',
+            'image/png': 'png',
+            'image/webp': 'webp',
+            'image/avif': 'avif',
+        };
+        return map[type] || '';
+    };
+    const ext = extensionFromType(contentType);
+    const key = `${keyPrefix}/${uuidv4()}${ext ? `.${ext}` : ''}`;
+    const params = {
+        Bucket: bucket,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+        ACL: 'public-read',
+        CacheControl: 'public, max-age=31536000, immutable',
+    };
+    await s3.putObject(params).promise();
+    const publicUrl = `https://${bucket}.s3.${process.env.S3_REGION}.amazonaws.com/${key}`;
+    return { publicUrl, key };
+}
+
 
