@@ -15,7 +15,7 @@ export async function getPresignedUploadUrl({ contentType }) {
         Key: key,
         Expires: 60,
         ContentType: contentType,
-        ACL: 'public-read',
+        // ACL: 'public-read',
     };
     const uploadURL = await s3.getSignedUrlPromise('putObject', params);
     const publicUrl = `https://${bucket}.s3.${process.env.S3_REGION}.amazonaws.com/${key}`;
@@ -41,7 +41,7 @@ export async function uploadBufferToS3({ buffer, contentType, keyPrefix = 'uploa
         Key: key,
         Body: buffer,
         ContentType: contentType,
-        ACL: 'public-read',
+        // ACL: 'public-read',
         CacheControl: 'public, max-age=31536000, immutable',
     };
     await s3.putObject(params).promise();
