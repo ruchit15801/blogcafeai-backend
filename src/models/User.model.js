@@ -9,6 +9,7 @@ const userSchema = new mongoose.Schema(
         bio: { type: String },
         avatarUrl: { type: String },
         isEmailVerified: { type: Boolean, default: false },
+        favorites: [{ type: mongoose.Schema.Types.ObjectId, ref: 'BlogPost' }],
     },
     { timestamps: true }
 );

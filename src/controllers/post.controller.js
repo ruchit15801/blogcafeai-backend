@@ -4,6 +4,10 @@ import sanitizeHtml from 'sanitize-html';
 import BlogPost from '../models/BlogPost.model.js';
 import { computeReadTimeMinutesFromHtml } from '../utils/readtime.js';
 import { uploadBufferToS3 } from '../utils/s3.js';
+import PostView from '../models/PostView.model.js';
+import Comment from '../models/Comment.model.js';
+import User from '../models/User.model.js';
+import { verifyAccessToken } from '../security/auth.js';
 
 const listQuerySchema = z.object({
     page: z.string().optional(),
@@ -20,7 +24,8 @@ export async function listPosts(req, res, next) {
         const q = listQuerySchema.parse(req.query);
         const page = Math.max(parseInt(q.page || '1', 10), 1);
         const limit = Math.min(Math.max(parseInt(q.limit || '10', 10), 1), 50);
-        const filter = { status: 'published' };
+        const now = new Date();
+        const filter = { status: 'published', publishedAt: { $lte: now } };
         if (q.category) filter.category = q.category;
         if (q.tag) filter.tags = q.tag;
         if (q.authorId) filter.author = q.authorId;
@@ -45,11 +50,28 @@ export async function listPosts(req, res, next) {
 export async function getBySlug(req, res, next) {
     try {
         const { slug } = req.params;
-        const post = await BlogPost.findOneAndUpdate({ slug }, { $inc: { views: 1 } }, { new: true })
+        const post = await BlogPost.findOne({ slug, status: 'published', publishedAt: { $lte: new Date() } })
             .populate('author', 'fullName')
             .populate('category', 'name slug')
             .populate('tags', 'name slug');
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
+        // Unique view increment for authenticated users
+        const userId = req.user && req.user.id;
+        if (userId) {
+            try {
+                const created = await PostView.create({ post: post._id, user: userId });
+                if (created) {
+                    await BlogPost.updateOne({ _id: post._id }, { $inc: { views: 1 } });
+                    post.views = (post.views || 0) + 1;
+                }
+            } catch (e) {
+                // ignore duplicate key errors (already viewed)
+            }
+        } else {
+            // For unauthenticated, still increment a soft view (optional). Comment out if strict unique is desired
+            await BlogPost.updateOne({ _id: post._id }, { $inc: { views: 1 } });
+            post.views = (post.views || 0) + 1;
+        }
         const previous = await BlogPost.findOne({ status: 'published', publishedAt: { $lt: post.publishedAt } })
             .sort({ publishedAt: -1 })
             .select('title slug');
@@ -110,6 +132,17 @@ export async function createPost(req, res, next) {
         }
 
         const input = createSchema.parse(body);
+        // Scheduling rules: if scheduled, require future publishedAt; if past/now, set to published
+        if (input.status === 'scheduled') {
+            const when = input.publishedAt ? new Date(input.publishedAt) : null;
+            if (!when) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'publishedAt required for scheduled post' } });
+            }
+            if (when <= new Date()) {
+                // convert to immediate publish
+                input.status = 'published';
+            }
+        }
         let baseSlug = slugify(input.title, { lower: true, strict: true });
         let slug = baseSlug;
         let n = 1;
@@ -174,6 +207,15 @@ export async function updatePost(req, res, next) {
         }
 
         const input = updateSchema.parse(body);
+        if (input.status === 'scheduled') {
+            const when = input.publishedAt ? new Date(input.publishedAt) : null;
+            if (!when) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'publishedAt required for scheduled post' } });
+            }
+            if (when <= new Date()) {
+                input.status = 'published';
+            }
+        }
         const post = await BlogPost.findById(id);
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
         if (String(post.author) !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot edit' } });
@@ -228,6 +270,33 @@ export async function publishPost(req, res, next) {
         if (!post.publishedAt) post.publishedAt = new Date();
         await post.save();
         res.json({ success: true, post });
+    } catch (err) {
+        return next(err);
+    }
+}
+
+export async function getPostMeta(req, res, next) {
+    try {
+        const { id } = req.params;
+        const post = await BlogPost.findOne({ _id: id, status: 'published', publishedAt: { $lte: new Date() } }).select('_id views');
+        if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
+        const [commentsCount, favoritesCount] = await Promise.all([
+            Comment.countDocuments({ post: id }),
+            User.countDocuments({ favorites: id }),
+        ]);
+        let isFavorited = false;
+        const header = req.headers.authorization || '';
+        const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+        if (token) {
+            try {
+                const decoded = verifyAccessToken(token);
+                const user = await User.findById(decoded.id).select('_id favorites');
+                if (user) isFavorited = user.favorites?.some((f) => String(f) === String(id)) || false;
+            } catch (_e) {
+                // ignore invalid token
+            }
+        }
+        res.json({ success: true, meta: { commentsCount, favoritesCount, isFavorited, views: post.views || 0 } });
     } catch (err) {
         return next(err);
     }
