@@ -96,7 +96,7 @@ const createSchema = z.object({
     imageUrls: z.array(z.string().url()).optional(),
     categoryId: z.string().optional(),
     tags: z.array(z.string()).optional(),
-    status: z.enum(['draft', 'published']).default('draft'),
+    status: z.enum(['draft', 'published']).default('published'),
     publishedAt: z.string().optional(),
 });
 
