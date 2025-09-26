@@ -15,7 +15,7 @@ import {
 } from '../controllers/post.controller.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 router.get('/', listPosts);
 router.get('/:slug', getBySlug);

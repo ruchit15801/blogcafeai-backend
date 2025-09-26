@@ -26,7 +26,7 @@ const app = express();
 app.use(helmet());
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '900mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ limit: '900mb', extended: true }));
 app.use(compression());
 app.use(morgan('dev'));
 
