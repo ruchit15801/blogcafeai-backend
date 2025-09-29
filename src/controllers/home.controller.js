@@ -176,3 +176,49 @@ export async function trendingByCategory(req, res, next) {
     }
 }
 
+
+// GET /api/home/top-trending-authors
+// Query: limit (default 5)
+export async function topTrendingAuthors(req, res, next) {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '5', 10), 1), 20);
+        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        const pipeline = [
+            { $match: { status: 'published', ...publishedNowOrUnset } },
+            { $group: { _id: '$author', totalViews: { $sum: '$views' }, totalPosts: { $sum: 1 } } },
+            // Join with users to filter out admins
+            { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'author' } },
+            { $unwind: '$author' },
+            { $match: { 'author.role': 'user' } },
+            { $sort: { totalViews: -1 } },
+            { $limit: limit },
+            { $project: { _id: 0, author: { _id: '$author._id', fullName: '$author.fullName', email: '$author.email', avatarUrl: '$author.avatarUrl', role: '$author.role', createdAt: '$author.createdAt' }, totalViews: 1, totalPosts: 1 } },
+        ];
+        const authors = await BlogPost.aggregate(pipeline);
+        return res.json({ success: true, data: authors, meta: { limit } });
+    } catch (err) {
+        return next(err);
+    }
+}
+
+// GET /api/home/top-trending-categories
+// Query: limit (default 9)
+export async function topTrendingCategories(req, res, next) {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '9', 10), 1), 50);
+        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        const pipeline = [
+            { $match: { status: 'published', ...publishedNowOrUnset } },
+            { $group: { _id: '$category', totalViews: { $sum: '$views' }, totalPosts: { $sum: 1 } } },
+            { $sort: { totalViews: -1 } },
+            { $limit: limit },
+        ];
+        let data = await BlogPost.aggregate(pipeline);
+        data = await BlogPost.populate(data, { path: '_id', model: 'Category', select: 'name slug' });
+        const categories = data.map((d) => ({ category: d._id, totalViews: d.totalViews || 0, totalPosts: d.totalPosts || 0 }));
+        return res.json({ success: true, data: categories, meta: { limit } });
+    } catch (err) {
+        return next(err);
+    }
+}
+
