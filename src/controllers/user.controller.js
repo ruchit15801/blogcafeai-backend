@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import BlogPost from '../models/BlogPost.model.js';
+import User from '../models/User.model.js';
+import { uploadBufferToS3 } from '../utils/s3.js';
 
 const schema = z.object({ page: z.string().optional(), limit: z.string().optional() });
 
@@ -21,4 +23,42 @@ export async function listUserPosts(req, res, next) {
     }
 }
 
+
+const profileUpdateSchema = z.object({ fullName: z.string().min(2).max(80).optional() });
+
+export async function getMyProfile(req, res, next) {
+    try {
+        const user = await User.findById(req.user.id).select('fullName email avatarUrl role createdAt');
+        if (!user) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
+        res.json({ success: true, data: user });
+    } catch (err) {
+        return next(err);
+    }
+}
+
+export async function updateMyProfile(req, res, next) {
+    try {
+        const input = profileUpdateSchema.parse(req.body || {});
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
+
+        if (input.fullName) user.fullName = input.fullName;
+
+        const file = req.file;
+        if (file) {
+            const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+            if (!allowed.includes(file.mimetype)) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid avatar image type' } });
+            }
+            const uploaded = await uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'avatars' });
+            user.avatarUrl = uploaded.publicUrl;
+        }
+
+        await user.save();
+        res.json({ success: true, data: { _id: user._id, fullName: user.fullName, email: user.email, avatarUrl: user.avatarUrl, role: user.role } });
+    } catch (err) {
+        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        return next(err);
+    }
+}
 

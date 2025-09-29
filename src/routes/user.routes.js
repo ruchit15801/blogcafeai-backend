@@ -1,12 +1,16 @@
 import { Router } from 'express';
-import { listUserPosts } from '../controllers/user.controller.js';
+import { listUserPosts, getMyProfile, updateMyProfile } from '../controllers/user.controller.js';
 import { authMiddleware } from '../security/auth.js';
+import multer from 'multer';
 import { z } from 'zod';
 import User from '../models/User.model.js';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.get('/:userId/posts', listUserPosts);
+router.get('/me/profile', authMiddleware, getMyProfile);
+router.patch('/me/profile', authMiddleware, upload.single('avatar'), updateMyProfile);
 
 // Favorites endpoints
 const favSchema = z.object({ postId: z.string().min(1) });
