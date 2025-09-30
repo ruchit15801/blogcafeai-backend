@@ -278,8 +278,14 @@ export async function publishPost(req, res, next) {
 export async function getPostMeta(req, res, next) {
     try {
         const { id } = req.params;
-        const post = await BlogPost.findOne({ _id: id, status: 'published', publishedAt: { $lte: new Date() } }).select('_id views');
+        const post = await BlogPost.findOne({ _id: id, status: 'published', $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] })
+            // .select('_id views author category')
+            .populate('author', 'fullName email avatarUrl role')
+            .populate('category', 'name slug');
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
+        // increment view count
+        await BlogPost.updateOne({ _id: post._id }, { $inc: { views: 1 } });
+        const newViews = (post.views || 0) + 1;
         const [commentsCount, favoritesCount] = await Promise.all([
             Comment.countDocuments({ post: id }),
             User.countDocuments({ favorites: id }),
@@ -296,7 +302,7 @@ export async function getPostMeta(req, res, next) {
                 // ignore invalid token
             }
         }
-        res.json({ success: true, meta: { commentsCount, favoritesCount, isFavorited, views: post.views || 0 } });
+        res.json({ success: true, meta: { commentsCount, favoritesCount, isFavorited, views: newViews }, author: post.author, category: post.category });
     } catch (err) {
         return next(err);
     }

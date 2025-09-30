@@ -1,31 +1,73 @@
 import BlogPost from '../models/BlogPost.model.js';
+import Comment from '../models/Comment.model.js';
+import User from '../models/User.model.js';
 
 export async function home(_req, res, next) {
     try {
-        const [featuredPosts, trendingPosts, recentPosts, topAuthors] = await Promise.all([
-            BlogPost.find({ status: 'published', publishedAt: { $lte: new Date() }, isFeatured: true })
+        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        const publishedMatch = { status: 'published', ...publishedNowOrUnset };
+        const [featuredPosts, trendingPosts, recentPosts, topAuthors, discussedAgg, favoritedAgg] = await Promise.all([
+            BlogPost.find({ ...publishedMatch, isFeatured: true })
                 .sort({ publishedAt: -1 })
                 .limit(6)
-                .select('title slug bannerImageUrl summary views')
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
+                .populate('author', 'fullName email avatarUrl role')
                 .populate('category', 'name slug'),
-            BlogPost.find({ status: 'published', publishedAt: { $lte: new Date() } })
+            BlogPost.find(publishedMatch)
                 .sort({ views: -1, publishedAt: -1 })
                 .limit(6)
-                .select('title slug bannerImageUrl summary views')
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
+                .populate('author', 'fullName email avatarUrl role')
                 .populate('category', 'name slug'),
-            BlogPost.find({ status: 'published', publishedAt: { $lte: new Date() } })
+            BlogPost.find(publishedMatch)
                 .sort({ publishedAt: -1 })
                 .limit(6)
-                .select('title slug bannerImageUrl summary views')
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
+                .populate('author', 'fullName email avatarUrl role')
                 .populate('category', 'name slug'),
             BlogPost.aggregate([
-                { $match: { status: 'published', publishedAt: { $lte: new Date() } } },
+                { $match: publishedMatch },
                 { $group: { _id: '$author', posts: { $sum: 1 } } },
                 { $sort: { posts: -1 } },
                 { $limit: 5 },
             ]),
+            Comment.aggregate([
+                { $group: { _id: '$post', comments: { $sum: 1 } } },
+                { $sort: { comments: -1 } },
+                { $limit: 6 },
+            ]),
+            User.aggregate([
+                { $unwind: '$favorites' },
+                { $group: { _id: '$favorites', favorites: { $sum: 1 } } },
+                { $sort: { favorites: -1 } },
+                { $limit: 6 },
+            ]),
         ]);
-        res.json({ success: true, featuredPosts, trendingPosts, recentPosts, topAuthors });
+        const discussedIds = discussedAgg.map((d) => d._id).filter(Boolean);
+        const favoritedIds = favoritedAgg.map((d) => d._id).filter(Boolean);
+
+        const [discussedPostsRaw, favoritedPostsRaw] = await Promise.all([
+            BlogPost.find({ _id: { $in: discussedIds }, ...publishedMatch })
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags category author')
+                .populate('category', 'name slug')
+                .populate('author', 'fullName email avatarUrl role'),
+            BlogPost.find({ _id: { $in: favoritedIds }, ...publishedMatch })
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags category author')
+                .populate('category', 'name slug')
+                .populate('author', 'fullName email avatarUrl role'),
+        ]);
+
+        const commentsByPostId = Object.fromEntries(discussedAgg.map((d) => [String(d._id), d.comments]));
+        const favoritesByPostId = Object.fromEntries(favoritedAgg.map((d) => [String(d._id), d.favorites]));
+
+        const mostDiscussedPosts = discussedPostsRaw
+            .map((p) => ({ post: p, comments: commentsByPostId[String(p._id)] || 0 }))
+            .sort((a, b) => b.comments - a.comments);
+        const mostFavoritedPosts = favoritedPostsRaw
+            .map((p) => ({ post: p, favorites: favoritesByPostId[String(p._id)] || 0 }))
+            .sort((a, b) => b.favorites - a.favorites);
+
+        res.json({ success: true, featuredPosts, trendingPosts, recentPosts, topAuthors, mostDiscussedPosts, mostFavoritedPosts });
     } catch (err) {
         return next(err);
     }
@@ -44,7 +86,8 @@ export async function listAllPosts(req, res, next) {
         const startDate = req.query.startDate ? new Date(req.query.startDate) : undefined;
         const endDate = req.query.endDate ? new Date(req.query.endDate) : undefined;
 
-        const match = { status: 'published', publishedAt: { $lte: new Date() } };
+        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        const match = { status: 'published', ...publishedNowOrUnset };
         if (category) match.category = category;
         if (tag) match.tags = tag;
         if (startDate || endDate) {
@@ -57,11 +100,14 @@ export async function listAllPosts(req, res, next) {
             const pipeline = [
                 { $match: match },
                 { $sample: { size: limit } },
-                { $project: { title: 1, slug: 1, bannerImageUrl: 1, summary: 1, publishedAt: 1, views: 1, category: 1 } },
+                { $project: { title: 1, slug: 1, bannerImageUrl: 1, summary: 1, publishedAt: 1, views: 1, category: 1, author: 1, readingTimeMinutes: 1, tags: 1 } },
             ];
             let data = await BlogPost.aggregate(pipeline);
             // Populate category after aggregate
-            data = await BlogPost.populate(data, { path: 'category', select: 'name slug' });
+            data = await BlogPost.populate(data, [
+                { path: 'category', select: 'name slug' },
+                { path: 'author', select: 'fullName email avatarUrl role' },
+            ]);
             // total count for pagination (approximate when random)
             const total = await BlogPost.countDocuments(match);
             return res.json({ success: true, data, meta: { page, limit, total, random: true } });
@@ -76,8 +122,9 @@ export async function listAllPosts(req, res, next) {
                 .sort(sortObj)
                 .skip((page - 1) * limit)
                 .limit(limit)
-                .select('title slug bannerImageUrl summary publishedAt views')
-                .populate('category', 'name slug'),
+                .select('title slug bannerImageUrl tags readingTimeMinutes summary publishedAt views author category')
+                .populate('category', 'name slug')
+                .populate('author', 'fullName email avatarUrl role'),
             BlogPost.countDocuments(match),
         ]);
         return res.json({ success: true, data, meta: { page, limit, total } });
@@ -86,4 +133,92 @@ export async function listAllPosts(req, res, next) {
     }
 }
 
+
+// GET /api/home/trending-by-category
+// Query: categoriesLimit (default 9), postsPerCategory (default 5)
+export async function trendingByCategory(req, res, next) {
+    try {
+        const categoriesLimit = Math.min(Math.max(parseInt(req.query.categoriesLimit || '9', 10), 1), 20);
+        const postsPerCategory = Math.min(Math.max(parseInt(req.query.postsPerCategory || '5', 10), 1), 20);
+
+        const pipeline = [
+            { $match: { status: 'published', $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] } },
+            { $sort: { views: -1, publishedAt: -1 } },
+            {
+                $group: {
+                    _id: '$category',
+                    totalViews: { $sum: '$views' },
+                    posts: {
+                        $push: {
+                            _id: '$_id',
+                            title: '$title',
+                            slug: '$slug',
+                            bannerImageUrl: '$bannerImageUrl',
+                            summary: '$summary',
+                            views: '$views',
+                            publishedAt: '$publishedAt',
+                            category: '$category',
+                        },
+                    },
+                },
+            },
+            { $sort: { totalViews: -1 } },
+            { $limit: categoriesLimit },
+            { $project: { _id: 0, category: '$_id', totalViews: 1, posts: { $slice: ['$posts', postsPerCategory] } } },
+        ];
+
+        let data = await BlogPost.aggregate(pipeline);
+        data = await BlogPost.populate(data, { path: 'category', select: 'name slug' });
+
+        return res.json({ success: true, data, meta: { categoriesLimit, postsPerCategory } });
+    } catch (err) {
+        return next(err);
+    }
+}
+
+
+// GET /api/home/top-trending-authors
+// Query: limit (default 5)
+export async function topTrendingAuthors(req, res, next) {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '5', 10), 1), 20);
+        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        const pipeline = [
+            { $match: { status: 'published', ...publishedNowOrUnset } },
+            { $group: { _id: '$author', totalViews: { $sum: '$views' }, totalPosts: { $sum: 1 } } },
+            // Join with users to filter out admins
+            { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'author' } },
+            { $unwind: '$author' },
+            { $match: { 'author.role': 'user' } },
+            { $sort: { totalViews: -1 } },
+            { $limit: limit },
+            { $project: { _id: 0, author: { _id: '$author._id', fullName: '$author.fullName', email: '$author.email', avatarUrl: '$author.avatarUrl', role: '$author.role', createdAt: '$author.createdAt' }, totalViews: 1, totalPosts: 1 } },
+        ];
+        const authors = await BlogPost.aggregate(pipeline);
+        return res.json({ success: true, data: authors, meta: { limit } });
+    } catch (err) {
+        return next(err);
+    }
+}
+
+// GET /api/home/top-trending-categories
+// Query: limit (default 9)
+export async function topTrendingCategories(req, res, next) {
+    try {
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '9', 10), 1), 50);
+        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        const pipeline = [
+            { $match: { status: 'published', ...publishedNowOrUnset } },
+            { $group: { _id: '$category', totalViews: { $sum: '$views' }, totalPosts: { $sum: 1 } } },
+            { $sort: { totalViews: -1 } },
+            { $limit: limit },
+        ];
+        let data = await BlogPost.aggregate(pipeline);
+        data = await BlogPost.populate(data, { path: '_id', model: 'Category', select: 'name slug' });
+        const categories = data.map((d) => ({ category: d._id, totalViews: d.totalViews || 0, totalPosts: d.totalPosts || 0 }));
+        return res.json({ success: true, data: categories, meta: { limit } });
+    } catch (err) {
+        return next(err);
+    }
+}
 

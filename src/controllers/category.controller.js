@@ -4,7 +4,7 @@ import Category from '../models/Category.model.js';
 import { uploadBufferToS3 } from '../utils/s3.js';
 
 export async function listCategories(_req, res) {
-    const cats = await Category.find().sort({ name: 1 }).select('name slug description imageUrl');
+    const cats = await Category.find().sort({ createdAt: -1 }).select('name slug description imageUrl');
     res.json({ success: true, data: cats });
 }
 
