@@ -2,72 +2,140 @@ import BlogPost from '../models/BlogPost.model.js';
 import Comment from '../models/Comment.model.js';
 import User from '../models/User.model.js';
 
-export async function home(_req, res, next) {
+export async function home(req, res, next) {
     try {
-        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        const { page = 1, limit = 6, categoryId } = req.query; // added categoryId
+
+        const publishedNowOrUnset = {
+            $or: [
+                { publishedAt: { $lte: new Date() } },
+                { publishedAt: null },
+                { publishedAt: { $exists: false } }
+            ]
+        };
+
         const publishedMatch = { status: 'published', ...publishedNowOrUnset };
-        const [featuredPosts, trendingPosts, recentPosts, topAuthors, discussedAgg, favoritedAgg] = await Promise.all([
-            BlogPost.find({ ...publishedMatch, isFeatured: true })
-                .sort({ publishedAt: -1 })
-                .limit(6)
-                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
-                .populate('author', 'fullName email avatarUrl role')
-                .populate('category', 'name slug'),
+
+        // ✅ Add category filter if provided
+        let recentPostsFilter = { ...publishedMatch };
+        if (categoryId) {
+            recentPostsFilter.category = categoryId;
+        }
+
+        const [
+            topViewedPosts,
+            topCommentedAgg,
+            topLikedAgg,
+            topAuthorsAgg,
+            recentPosts,
+            recentPostsCount
+        ] = await Promise.all([
+            // 🔥 Top Viewed Blogs
             BlogPost.find(publishedMatch)
-                .sort({ views: -1, publishedAt: -1 })
+                .sort({ views: -1 })
                 .limit(6)
                 .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
                 .populate('author', 'fullName email avatarUrl role')
                 .populate('category', 'name slug'),
-            BlogPost.find(publishedMatch)
-                .sort({ publishedAt: -1 })
-                .limit(6)
-                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
-                .populate('author', 'fullName email avatarUrl role')
-                .populate('category', 'name slug'),
-            BlogPost.aggregate([
-                { $match: publishedMatch },
-                { $group: { _id: '$author', posts: { $sum: 1 } } },
-                { $sort: { posts: -1 } },
-                { $limit: 5 },
-            ]),
+
+            // 🔥 Top Commented Blogs
             Comment.aggregate([
                 { $group: { _id: '$post', comments: { $sum: 1 } } },
                 { $sort: { comments: -1 } },
                 { $limit: 6 },
             ]),
+
+            // 🔥 Top Liked Blogs
             User.aggregate([
-                { $unwind: '$favorites' },
-                { $group: { _id: '$favorites', favorites: { $sum: 1 } } },
-                { $sort: { favorites: -1 } },
+                { $unwind: '$likes' },
+                { $group: { _id: '$likes', likes: { $sum: 1 } } },
+                { $sort: { likes: -1 } },
                 { $limit: 6 },
             ]),
-        ]);
-        const discussedIds = discussedAgg.map((d) => d._id).filter(Boolean);
-        const favoritedIds = favoritedAgg.map((d) => d._id).filter(Boolean);
 
-        const [discussedPostsRaw, favoritedPostsRaw] = await Promise.all([
-            BlogPost.find({ _id: { $in: discussedIds }, ...publishedMatch })
+            // 🔥 Top Authors
+            BlogPost.aggregate([
+                { $match: publishedMatch },
+                { $group: { _id: '$author', posts: { $sum: 1 } } },
+                { $sort: { posts: -1 } },
+                { $limit: 5 },
+                {
+                    $lookup: {
+                        from: 'users',
+                        localField: '_id',
+                        foreignField: '_id',
+                        as: 'author'
+                    }
+                },
+                { $unwind: '$author' },
+                {
+                    $project: {
+                        _id: 0,
+                        authorId: '$_id',
+                        fullName: '$author.fullName',
+                        avatarUrl: '$author.avatarUrl',
+                        posts: 1
+                    }
+                }
+            ]),
+
+            // 🔥 Recent Blogs (Paginated + Category Filter)
+            BlogPost.find(recentPostsFilter)
+                .sort({ publishedAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(parseInt(limit))
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
+                .populate('author', 'fullName email avatarUrl role')
+                .populate('category', 'name slug'),
+
+            // Count total for pagination
+            BlogPost.countDocuments(recentPostsFilter)
+        ]);
+
+        // Map commented & liked IDs
+        const commentedIds = topCommentedAgg.map(d => d._id).filter(Boolean);
+        const likedIds = topLikedAgg.map(d => d._id).filter(Boolean);
+
+        const [commentedPostsRaw, likedPostsRaw] = await Promise.all([
+            BlogPost.find({ _id: { $in: commentedIds }, ...publishedMatch })
                 .select('title slug bannerImageUrl summary views readingTimeMinutes tags category author')
                 .populate('category', 'name slug')
                 .populate('author', 'fullName email avatarUrl role'),
-            BlogPost.find({ _id: { $in: favoritedIds }, ...publishedMatch })
+            BlogPost.find({ _id: { $in: likedIds }, ...publishedMatch })
                 .select('title slug bannerImageUrl summary views readingTimeMinutes tags category author')
                 .populate('category', 'name slug')
                 .populate('author', 'fullName email avatarUrl role'),
         ]);
 
-        const commentsByPostId = Object.fromEntries(discussedAgg.map((d) => [String(d._id), d.comments]));
-        const favoritesByPostId = Object.fromEntries(favoritedAgg.map((d) => [String(d._id), d.favorites]));
+        // Attach counts
+        const commentsByPostId = Object.fromEntries(topCommentedAgg.map(d => [String(d._id), d.comments]));
+        const likesByPostId = Object.fromEntries(topLikedAgg.map(d => [String(d._id), d.likes]));
 
-        const mostDiscussedPosts = discussedPostsRaw
-            .map((p) => ({ post: p, comments: commentsByPostId[String(p._id)] || 0 }))
+        const topCommentedPosts = commentedPostsRaw
+            .map(p => ({ post: p, comments: commentsByPostId[String(p._id)] || 0 }))
             .sort((a, b) => b.comments - a.comments);
-        const mostFavoritedPosts = favoritedPostsRaw
-            .map((p) => ({ post: p, favorites: favoritesByPostId[String(p._id)] || 0 }))
-            .sort((a, b) => b.favorites - a.favorites);
 
-        res.json({ success: true, featuredPosts, trendingPosts, recentPosts, topAuthors, mostDiscussedPosts, mostFavoritedPosts });
+        const topLikedPosts = likedPostsRaw
+            .map(p => ({ post: p, likes: likesByPostId[String(p._id)] || 0 }))
+            .sort((a, b) => b.likes - a.likes);
+
+        res.json({
+            success: true,
+            topViewedPosts,
+            topCommentedPosts,
+            topLikedPosts,
+            topAuthors: topAuthorsAgg,
+            recentPosts: {
+                data: recentPosts,
+                pagination: {
+                    total: recentPostsCount,
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    totalPages: Math.ceil(recentPostsCount / limit)
+                },
+                filter: categoryId ? { categoryId } : null
+            }
+        });
     } catch (err) {
         return next(err);
     }
