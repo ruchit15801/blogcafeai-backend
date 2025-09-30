@@ -406,18 +406,40 @@ export async function adminPublishPostNow(req, res, next) {
     }
 }
 
-const updateSchema = z.object({ role: z.enum(['admin', 'user']).optional() });
+// user 
+const updateSchema = z.object({role: z.enum(["user", "admin"]).optional(), fullName: z.string().min(1).optional()});
 
 export async function updateUser(req, res, next) {
     try {
         const input = updateSchema.parse(req.body);
         const user = await User.findById(req.params.id);
-        if (!user) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
+        if (!user)
+            return res.status(404).json({
+                success: false,
+                error: { code: 'NOT_FOUND', message: 'User not found' }
+            });
+
+        if (input.fullName) user.fullName = input.fullName;
+
         if (input.role) user.role = input.role;
+
         await user.save();
-        res.json({ success: true, user: { _id: user._id, fullName: user.fullName, email: user.email, role: user.role } });
+
+        res.json({
+            success: true,
+            user: {
+                _id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role
+            }
+        });
     } catch (err) {
-        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        if (err instanceof z.ZodError)
+            return res.status(422).json({
+                success: false,
+                error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() }
+            });
         return next(err);
     }
 }
