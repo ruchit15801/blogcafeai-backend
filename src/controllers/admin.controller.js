@@ -92,7 +92,6 @@ export async function listAllPosts(req, res, next) {
                 .sort(sort)
                 .skip((page - 1) * limit)
                 .limit(limit)
-                .select('title status author category bannerImageUrl tags readingTimeMinutes createdAt publishedAt isFeatured views slug')
                 .populate('author', 'fullName email avatarUrl role'),
             BlogPost.countDocuments(match),
         ]);
@@ -501,6 +500,21 @@ export async function updateAdminProfile(req, res, next) {
         res.json({ success: true, data: { _id: user._id, fullName: user.fullName, email: user.email, avatarUrl: user.avatarUrl, role: user.role } });
     } catch (err) {
         if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        return next(err);
+    }
+}
+
+
+
+// Admin: get single post by ID
+export async function fetchPostById(req, res, next) {
+    try {
+        const { id } = req.params;
+        const post = await BlogPost.findById(id)
+            .populate('author', 'fullName email avatarUrl role');
+        if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
+        res.json({ success: true, post });
+    } catch (err) {
         return next(err);
     }
 }
