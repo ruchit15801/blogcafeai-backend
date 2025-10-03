@@ -209,7 +209,6 @@ export async function listAllPosts(req, res, next) {
 export async function trendingByCategory(req, res, next) {
     try {
         const categoriesLimit = Math.min(Math.max(parseInt(req.query.categoriesLimit || '9', 10), 1), 20);
-        const postsPerCategory = Math.min(Math.max(parseInt(req.query.postsPerCategory || '5', 10), 1), 20);
 
         const pipeline = [
             {
@@ -223,23 +222,12 @@ export async function trendingByCategory(req, res, next) {
                     ]
                 }
             },
-            { $sort: { views: -1, publishedAt: -1 } },
             {
                 $group: {
                     _id: '$category',
                     totalViews: { $sum: '$views' },
-                    posts: {
-                        $push: {
-                            _id: '$_id',
-                            title: '$title',
-                            slug: '$slug',
-                            bannerImageUrl: '$bannerImageUrl',
-                            summary: '$summary',
-                            views: '$views',
-                            publishedAt: '$publishedAt'
-                        },
-                    },
-                },
+                    postCount: { $sum: 1 } // ✅ count total posts
+                }
             },
             { $sort: { totalViews: -1 } },
             { $limit: categoriesLimit },
@@ -248,9 +236,9 @@ export async function trendingByCategory(req, res, next) {
                     _id: 0,
                     category: '$_id',
                     totalViews: 1,
-                    posts: { $slice: ['$posts', postsPerCategory] }
+                    postCount: 1
                 }
-            },
+            }
         ];
 
         let data = await BlogPost.aggregate(pipeline);
@@ -261,18 +249,19 @@ export async function trendingByCategory(req, res, next) {
             select: 'name slug'
         });
 
-        // ✅ filter out categories which are still null or missing
+        // ✅ filter categories with missing/null name
         data = data.filter(c => c.category && c.category.name);
 
         return res.json({
             success: true,
             data,
-            meta: { categoriesLimit, postsPerCategory }
+            meta: { categoriesLimit }
         });
     } catch (err) {
         return next(err);
     }
 }
+
 
 
 
