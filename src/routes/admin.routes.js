@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware, requireRole } from '../security/auth.js';
 import multer from 'multer';
-import { listUsers, listAllPosts, searchUsersByName, adminCreatePost, adminUpdatePost, adminDeletePost, listScheduledPosts, adminCreateScheduledPost, adminPublishPostNow, updateUser, deleteUser, toggleFeatured, getAdminProfile, updateAdminProfile, changeUserPassword, fetchPostById } from '../controllers/admin.controller.js';
+import { listUsers, listAllPosts, searchUsersByName, adminCreatePost, adminUpdatePost, adminDeletePost, listScheduledPosts, adminCreateScheduledPost, adminPublishPostNow, updateUser, deleteUser, toggleFeatured, getAdminProfile, updateAdminProfile, changeUserPassword, fetchPostById, listContactMessages, markContactMessageRead } from '../controllers/admin.controller.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -25,6 +25,8 @@ router.delete('/users/:id', deleteUser);
 router.post('/posts/:id/feature', toggleFeatured);
 
 router.get('/posts/:id', fetchPostById);
+router.get('/contacts', listContactMessages);
+router.patch('/contacts/:id/read', markContactMessageRead);
 
 export default router;
 

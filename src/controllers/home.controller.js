@@ -1,6 +1,8 @@
 import BlogPost from '../models/BlogPost.model.js';
 import Comment from '../models/Comment.model.js';
 import User from '../models/User.model.js';
+import ContactMessage from '../models/ContactMessage.model.js';
+import { z } from 'zod';
 
 export async function home(req, res, next) {
     try {
@@ -257,7 +259,7 @@ export async function topTrendingAuthors(req, res, next) {
             // Join with users to filter out admins
             { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'author' } },
             { $unwind: '$author' },
-            { $match: { 'author.role': 'user' } },
+            { $match: {} },
             { $sort: { totalViews: -1 } },
             { $limit: limit },
             { $project: { _id: 0, author: { _id: '$author._id', fullName: '$author.fullName', email: '$author.email', avatarUrl: '$author.avatarUrl', role: '$author.role', createdAt: '$author.createdAt' }, totalViews: 1, totalPosts: 1 } },
@@ -274,19 +276,48 @@ export async function topTrendingAuthors(req, res, next) {
 export async function topTrendingCategories(req, res, next) {
     try {
         const limit = Math.min(Math.max(parseInt(req.query.limit || '9', 10), 1), 50);
-        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+
+        const publishedNowOrUnset = {
+            $or: [
+                { publishedAt: { $lte: new Date() } },
+                { publishedAt: null },
+                { publishedAt: { $exists: false } }
+            ]
+        };
+
         const pipeline = [
-            { $match: { status: 'published', ...publishedNowOrUnset } },
+            { $match: { status: 'published', category: { $ne: null }, ...publishedNowOrUnset } }, // 🚀 skip null categories
             { $group: { _id: '$category', totalViews: { $sum: '$views' }, totalPosts: { $sum: 1 } } },
             { $sort: { totalViews: -1 } },
             { $limit: limit },
         ];
+
         let data = await BlogPost.aggregate(pipeline);
         data = await BlogPost.populate(data, { path: '_id', model: 'Category', select: 'name slug' });
-        const categories = data.map((d) => ({ category: d._id, totalViews: d.totalViews || 0, totalPosts: d.totalPosts || 0 }));
+
+        const categories = data.map(d => ({
+            category: d._id,
+            totalViews: d.totalViews || 0,
+            totalPosts: d.totalPosts || 0
+        }));
+
         return res.json({ success: true, data: categories, meta: { limit } });
     } catch (err) {
         return next(err);
     }
 }
+
+// Public: submit contact message
+const contactSchema = z.object({ name: z.string().min(2), email: z.string().email(), message: z.string().min(5).max(2000) });
+export async function submitContactMessage(req, res, next) {
+    try {
+        const input = contactSchema.parse(req.body);
+        const doc = await ContactMessage.create({ name: input.name, email: input.email, message: input.message });
+        res.status(201).json({ success: true, messageId: doc._id });
+    } catch (err) {
+        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        return next(err);
+    }
+}
+
 

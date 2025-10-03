@@ -6,6 +6,7 @@ import BlogPost from '../models/BlogPost.model.js';
 import { computeReadTimeMinutesFromHtml } from '../utils/readtime.js';
 import { uploadBufferToS3 } from '../utils/s3.js';
 import bcrypt from 'bcrypt';
+import ContactMessage from '../models/ContactMessage.model.js';
 
 const listSchema = z.object({ role: z.string().optional(), q: z.string().optional(), page: z.string().optional(), limit: z.string().optional() });
 
@@ -521,6 +522,40 @@ export async function updateAdminProfile(req, res, next) {
     }
 }
 
+// Admin: list contact messages
+const listContactSchema = z.object({ page: z.string().optional(), limit: z.string().optional(), status: z.enum(['new', 'read']).optional(), q: z.string().optional() });
+export async function listContactMessages(req, res, next) {
+    try {
+        const input = listContactSchema.parse(req.query);
+        const page = Math.max(parseInt(input.page || '1', 10), 1);
+        const limit = Math.min(Math.max(parseInt(input.limit || '20', 10), 1), 100);
+        const filter = {};
+        if (input.status) filter.status = input.status;
+        if (input.q) filter.$or = [{ name: new RegExp(input.q, 'i') }, { email: new RegExp(input.q, 'i') }, { message: new RegExp(input.q, 'i') }];
+        const [data, total] = await Promise.all([
+            ContactMessage.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).select('name email message status createdAt'),
+            ContactMessage.countDocuments(filter),
+        ]);
+        res.json({ success: true, data, meta: { page, limit, total } });
+    } catch (err) {
+        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid query', details: err.flatten() } });
+        return next(err);
+    }
+}
+
+// Admin: mark contact message as read
+export async function markContactMessageRead(req, res, next) {
+    try {
+        const { id } = req.params;
+        const msg = await ContactMessage.findById(id);
+        if (!msg) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Message not found' } });
+        msg.status = 'read';
+        await msg.save();
+        res.json({ success: true });
+    } catch (err) {
+        return next(err);
+    }
+}
 
 
 // Admin: get single post by ID
