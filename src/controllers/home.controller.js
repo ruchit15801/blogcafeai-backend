@@ -212,7 +212,17 @@ export async function trendingByCategory(req, res, next) {
         const postsPerCategory = Math.min(Math.max(parseInt(req.query.postsPerCategory || '5', 10), 1), 20);
 
         const pipeline = [
-            { $match: { status: 'published', $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] } },
+            {
+                $match: {
+                    status: 'published',
+                    category: { $exists: true, $ne: null }, // ✅ avoid null & undefined categories
+                    $or: [
+                        { publishedAt: { $lte: new Date() } },
+                        { publishedAt: null },
+                        { publishedAt: { $exists: false } }
+                    ]
+                }
+            },
             { $sort: { views: -1, publishedAt: -1 } },
             {
                 $group: {
@@ -226,25 +236,45 @@ export async function trendingByCategory(req, res, next) {
                             bannerImageUrl: '$bannerImageUrl',
                             summary: '$summary',
                             views: '$views',
-                            publishedAt: '$publishedAt',
-                            category: '$category',
+                            publishedAt: '$publishedAt'
                         },
                     },
                 },
             },
             { $sort: { totalViews: -1 } },
             { $limit: categoriesLimit },
-            { $project: { _id: 0, category: '$_id', totalViews: 1, posts: { $slice: ['$posts', postsPerCategory] } } },
+            {
+                $project: {
+                    _id: 0,
+                    category: '$_id',
+                    totalViews: 1,
+                    posts: { $slice: ['$posts', postsPerCategory] }
+                }
+            },
         ];
 
         let data = await BlogPost.aggregate(pipeline);
-        data = await BlogPost.populate(data, { path: 'category', select: 'name slug' });
 
-        return res.json({ success: true, data, meta: { categoriesLimit, postsPerCategory } });
+        // ✅ populate only name & slug of category
+        data = await BlogPost.populate(data, {
+            path: 'category',
+            select: 'name slug'
+        });
+
+        // ✅ filter out categories which are still null or missing
+        data = data.filter(c => c.category && c.category.name);
+
+        return res.json({
+            success: true,
+            data,
+            meta: { categoriesLimit, postsPerCategory }
+        });
     } catch (err) {
         return next(err);
     }
 }
+
+
 
 
 // GET /api/home/top-trending-authors
