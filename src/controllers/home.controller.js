@@ -243,10 +243,10 @@ export async function trendingByCategory(req, res, next) {
 
         let data = await BlogPost.aggregate(pipeline);
 
-        // ✅ populate only name & slug of category
+        // ✅ populate category name, slug & imageUrl
         data = await BlogPost.populate(data, {
             path: 'category',
-            select: 'name slug'
+            select: 'name slug imageUrl'
         });
 
         // ✅ filter categories with missing/null name
@@ -261,8 +261,6 @@ export async function trendingByCategory(req, res, next) {
         return next(err);
     }
 }
-
-
 
 
 
