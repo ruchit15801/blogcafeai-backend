@@ -5,6 +5,7 @@ import User from '../models/User.model.js';
 import BlogPost from '../models/BlogPost.model.js';
 import { computeReadTimeMinutesFromHtml } from '../utils/readtime.js';
 import { uploadBufferToS3 } from '../utils/s3.js';
+import bcrypt from 'bcrypt';
 
 const listSchema = z.object({ role: z.string().optional(), q: z.string().optional(), page: z.string().optional(), limit: z.string().optional() });
 
@@ -407,7 +408,7 @@ export async function adminPublishPostNow(req, res, next) {
 }
 
 // user 
-const updateSchema = z.object({role: z.enum(["user", "admin"]).optional(), fullName: z.string().min(1).optional()});
+const updateSchema = z.object({ role: z.enum(["user", "admin"]).optional(), fullName: z.string().min(1).optional() });
 
 export async function updateUser(req, res, next) {
     try {
@@ -466,6 +467,22 @@ export async function toggleFeatured(req, res, next) {
 }
 
 
+const adminChangePasswordSchema = z.object({ newPassword: z.string().min(6) });
+
+export async function changeUserPassword(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { newPassword } = adminChangePasswordSchema.parse(req.body || {});
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
+        user.passwordHash = await bcrypt.hash(newPassword, 10);
+        await user.save();
+        res.json({ success: true });
+    } catch (err) {
+        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        return next(err);
+    }
+}
 const adminProfileUpdateSchema = z.object({ fullName: z.string().min(2).max(80).optional() });
 
 export async function getAdminProfile(req, res, next) {

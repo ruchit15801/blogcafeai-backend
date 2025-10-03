@@ -4,7 +4,7 @@ import User from '../models/User.model.js';
 
 export async function home(req, res, next) {
     try {
-        const { page = 1, limit = 6, categoryId } = req.query; // added categoryId
+        const { page = 1, limit = 12, categoryId } = req.query; // added categoryId
 
         const publishedNowOrUnset = {
             $or: [

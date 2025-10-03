@@ -11,7 +11,7 @@ const blogPostSchema = new mongoose.Schema(
         category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
         tags: { type: [String] },
         author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
-        status: { type: String, enum: ['draft', 'published', 'scheduled', 'auto-generated'], default: 'draft', index: true },
+        status: { type: String, enum: ['published', 'scheduled', 'auto-generated'], default: 'published', index: true },
         isFeatured: { type: Boolean, default: false, index: true },
         views: { type: Number, default: 0, index: true },
         likes: { type: Number, default: 0 },
