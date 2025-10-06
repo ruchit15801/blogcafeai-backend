@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import mongoose from "mongoose";
 import slugify from 'slugify';
 import sanitizeHtml from 'sanitize-html';
 import User from '../models/User.model.js';
