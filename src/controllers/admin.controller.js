@@ -74,6 +74,7 @@ const listPostsSchema = z.object({
     sort: z.enum(['latest', 'publishedAt', 'views', 'featured', 'trending']).optional(),
 });
 
+
 export async function listAllPosts(req, res, next) {
     try {
         const userData = req.user;
@@ -83,21 +84,20 @@ export async function listAllPosts(req, res, next) {
         const limit = Math.min(Math.max(parseInt(input.limit || "20", 10), 1), 100);
 
         const match = {};
-
-        // 🧩 Determine author logic
-        let authorId = null;
-        if (input.userId) authorId = input.userId;
-        else if (userData?.id) authorId = userData.id;
-
+        console.log('userData :>> ', userData);
+        // ✅ Determine author logic (priority: input.userId > req.user.id)
+        let authorId = input.userId ? input.userId : userData?.id;
+        console.log('authorId :>> ', authorId);
         if (authorId) {
-            // ✅ Ensure authorId is a valid ObjectId
-            if (!mongoose.Types.ObjectId.isValid(authorId)) {
+            // Convert to ObjectId if valid
+            if (mongoose.Types.ObjectId.isValid(authorId)) {
+                match.author = new mongoose.Types.ObjectId(authorId);
+            } else {
                 return res.status(400).json({
                     success: false,
                     error: { code: "INVALID_ID", message: "Invalid userId or author ID" },
                 });
             }
-            match.author = new mongoose.Types.ObjectId(authorId);
         }
 
         // 🔍 Optional filters
