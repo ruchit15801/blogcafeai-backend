@@ -75,34 +75,77 @@ const listPostsSchema = z.object({
 
 export async function listAllPosts(req, res, next) {
     try {
-        let userData = req.user
+        const userData = req.user;
         const input = listPostsSchema.parse(req.query);
-        const page = Math.max(parseInt(input.page || '1', 10), 1);
-        const limit = Math.min(Math.max(parseInt(input.limit || '20', 10), 1), 100);
+
+        const page = Math.max(parseInt(input.page || "1", 10), 1);
+        const limit = Math.min(Math.max(parseInt(input.limit || "20", 10), 1), 100);
+
         const match = {};
-        if (userData.role == "admin") match.author = userData.id;
-        if (input.userId) match.author = input.userId;
-        if (input.q) match.title = { $regex: input.q, $options: 'i' };
+
+        // 🧩 Determine author logic
+        let authorId = null;
+        if (input.userId) authorId = input.userId;
+        else if (userData?.id) authorId = userData.id;
+
+        if (authorId) {
+            // ✅ Ensure authorId is a valid ObjectId
+            if (!mongoose.Types.ObjectId.isValid(authorId)) {
+                return res.status(400).json({
+                    success: false,
+                    error: { code: "INVALID_ID", message: "Invalid userId or author ID" },
+                });
+            }
+            match.author = new mongoose.Types.ObjectId(authorId);
+        }
+
+        // 🔍 Optional filters
+        if (input.q) match.title = { $regex: input.q, $options: "i" };
         if (input.status) match.status = input.status;
 
+        // 🧭 Sorting options
         let sort = { createdAt: -1 };
-        if (input.sort === 'publishedAt') sort = { publishedAt: -1 };
-        if (input.sort === 'views') sort = { views: -1 };
-        if (input.sort === 'featured') sort = { isFeatured: -1, createdAt: -1 };
-        if (input.sort === 'trending') sort = { trendScore: -1 };
+        switch (input.sort) {
+            case "publishedAt":
+                sort = { publishedAt: -1 };
+                break;
+            case "views":
+                sort = { views: -1 };
+                break;
+            case "featured":
+                sort = { isFeatured: -1, createdAt: -1 };
+                break;
+            case "trending":
+                sort = { trendScore: -1 };
+                break;
+        }
 
+        // 🗂️ Fetch posts and total count
         const [posts, total] = await Promise.all([
             BlogPost.find(match)
                 .sort(sort)
                 .skip((page - 1) * limit)
                 .limit(limit)
-                .populate('author', 'fullName email avatarUrl role'),
+                .populate("author", "fullName email avatarUrl role"),
             BlogPost.countDocuments(match),
         ]);
 
-        res.json({ success: true, data: posts, meta: { page, limit, total } });
+        return res.json({
+            success: true,
+            data: posts,
+            meta: { page, limit, total },
+        });
     } catch (err) {
-        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid query', details: err.flatten() } });
+        if (err instanceof z.ZodError) {
+            return res.status(422).json({
+                success: false,
+                error: {
+                    code: "VALIDATION_ERROR",
+                    message: "Invalid query",
+                    details: err.flatten(),
+                },
+            });
+        }
         return next(err);
     }
 }
