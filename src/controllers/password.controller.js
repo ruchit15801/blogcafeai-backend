@@ -56,32 +56,83 @@ function generateOtp() {
     return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-function otpEmailHtml(otp) {
+function otpEmailHtml(userName, otp) {
     return `
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Password Reset OTP</title>
-    <style>
-      @keyframes glow { 0% { box-shadow: 0 0 8px #7c3aed; } 50% { box-shadow: 0 0 18px #06b6d4; } 100% { box-shadow: 0 0 8px #7c3aed; } }
-      .card { max-width: 560px; margin: 24px auto; padding: 28px; border-radius: 16px; background: linear-gradient(135deg, #0f172a, #111827); color: #e5e7eb; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; border: 1px solid rgba(255,255,255,0.08); animation: glow 2.4s infinite ease-in-out; }
-      .title { font-size: 20px; margin: 0 0 8px; color: #fff; }
-      .subtitle { margin: 0 0 24px; color: #9ca3af; }
-      .otp { display: inline-block; letter-spacing: 6px; background: #0b1220; border: 1px solid #334155; padding: 14px 18px; border-radius: 12px; font-weight: 700; font-size: 28px; color: #fff; }
-      .footer { margin-top: 24px; font-size: 12px; color: #94a3b8; }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1 class="title">Your password reset code</h1>
-      <p class="subtitle">Use the one-time code below. It expires in 10 minutes.</p>
-      <div class="otp">${otp}</div>
-      <p class="footer">If you did not request this, you can safely ignore this email.</p>
-    </div>
-  </body>
-  </html>`;
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Password Reset OTP</title>
+</head>
+<body style="margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f3f4f6;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; padding: 30px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#fff; border-radius:16px; padding:32px; box-shadow:0 8px 24px rgba(0,0,0,0.1); border:1px solid rgba(0,0,0,0.05);">
+          <!-- Logo -->
+          <tr>
+            <td align="center" style="font-weight:700; font-size:28px; color:#4f46e5; margin-bottom:24px; padding-bottom:16px;">
+              BlogCafeAi
+            </td>
+          </tr>
+
+          <!-- Greeting -->
+          <tr>
+            <td style="font-size:16px; color:#111827; padding-bottom:12px;">
+              Dear ${userName},
+            </td>
+          </tr>
+
+          <!-- Intro -->
+          <tr>
+            <td style="font-size:15px; color:#4b5563; line-height:1.6; padding-bottom:24px;">
+              We received a request to reset your password. Please use the One-Time Password (OTP) below to verify your request:
+            </td>
+          </tr>
+
+          <!-- OTP Box -->
+          <tr>
+            <td align="center" style="background-color:#e0e7ff; padding:20px 0; border-radius:12px; font-size:32px; font-weight:700; letter-spacing:8px; color:#1e3a8a; border:1px solid #c7d2fe; box-shadow:0 4px 8px rgba(79,70,229,0.2); margin-bottom:16px;">
+              ${otp}
+            </td>
+          </tr>
+
+          <!-- OTP Note -->
+          <tr>
+            <td align="center" style="font-size:14px; color:#6b7280; padding:24px 0px;">
+              This OTP is valid for the next 10 minutes.
+            </td>
+          </tr>
+
+          <!-- Ignore note -->
+          <tr>
+            <td style="font-size:14px; color:#4b5563; line-height:1.5; padding-bottom:24px;">
+              If you did not request a password reset, you can safely ignore this email.
+            </td>
+          </tr>
+
+          <!-- Regards -->
+          <tr>
+            <td align="center" style="font-weight:600; color:#111827; padding-bottom:4px;">Regards,</td>
+          </tr>
+          <tr>
+            <td align="center" style="font-weight:700; color:#4f46e5; padding-bottom:24px;">Team BlogCafeAi</td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="font-size:13px; color:#6b7280;">
+              © 2025 BlogCafeAi. All rights reserved.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
 }
 
 function createTransport() {
@@ -109,7 +160,7 @@ export async function forgotPasswordOtp(req, res, next) {
         await PasswordResetToken.create({ email, tokenHash, expiresAt, used: false });
 
         const { transporter, from } = createTransport();
-        const html = otpEmailHtml(otp);
+        const html = otpEmailHtml(user.fullName || user.name || user.email, otp);
         await transporter.sendMail({ from, to: email, subject: 'Your Password Reset Code', html });
 
         const payload = { success: true };
@@ -132,7 +183,7 @@ export async function resendOtp(req, res, next) {
         await PasswordResetToken.create({ email, tokenHash, expiresAt, used: false });
 
         const { transporter, from } = createTransport();
-        const html = otpEmailHtml(otp);
+        const html = otpEmailHtml(user.fullName || user.name || user.email, otp);
         await transporter.sendMail({ from, to: email, subject: 'Your Password Reset Code (Resent)', html });
 
         const payload = { success: true };
@@ -175,5 +226,3 @@ export async function changePassword(req, res, next) {
         return next(err);
     }
 }
-
-
