@@ -75,12 +75,13 @@ const listPostsSchema = z.object({
 
 export async function listAllPosts(req, res, next) {
     try {
-        let userId = req.user.id
+        let userData = req.user
         const input = listPostsSchema.parse(req.query);
         const page = Math.max(parseInt(input.page || '1', 10), 1);
         const limit = Math.min(Math.max(parseInt(input.limit || '20', 10), 1), 100);
         const match = {};
-        if (userId) match.author = userId;
+        if (userData.role == "admin") match.author = userData.id;
+        if (input.userId) match.author = input.userId;
         if (input.q) match.title = { $regex: input.q, $options: 'i' };
         if (input.status) match.status = input.status;
 
