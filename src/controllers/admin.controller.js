@@ -266,55 +266,98 @@ export async function adminUpdatePost(req, res, next) {
     try {
         const { id } = req.params;
         const body = { ...req.body };
+
         if (typeof body.imageUrls === 'string') body.imageUrls = [body.imageUrls];
         if (typeof body.tags === 'string') body.tags = [body.tags];
         if (Array.isArray(body.tags)) body.tags = body.tags.filter(Boolean);
         if (Array.isArray(body.imageUrls)) body.imageUrls = body.imageUrls.filter(Boolean);
+
         // Handle new uploads
         const files = req.files || {};
         const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+
+        // Handle banner image upload
         if (files.bannerImage && files.bannerImage[0]) {
             const file = files.bannerImage[0];
             if (!allowed.includes(file.mimetype)) {
-                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid banner image type' } });
+                return res.status(422).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'Invalid banner image type' },
+                });
             }
-            const uploaded = await uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-banners' });
+            const uploaded = await uploadBufferToS3({
+                buffer: file.buffer,
+                contentType: file.mimetype,
+                keyPrefix: 'post-banners',
+            });
             body.bannerImageUrl = uploaded.publicUrl;
         }
+
+        // Handle multiple image uploads — REPLACE mode
         if (files.images && Array.isArray(files.images) && files.images.length > 0) {
             const uploads = [];
             for (const file of files.images) {
                 if (!allowed.includes(file.mimetype)) continue;
-                uploads.push(uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-images' }));
+                uploads.push(
+                    uploadBufferToS3({
+                        buffer: file.buffer,
+                        contentType: file.mimetype,
+                        keyPrefix: 'post-images',
+                    })
+                );
             }
             const results = await Promise.all(uploads);
-            const urls = results.map(r => r.publicUrl);
-            body.imageUrls = Array.isArray(body.imageUrls) ? [...body.imageUrls, ...urls] : urls;
+            const urls = results.map((r) => r.publicUrl);
+            // 🔁 Replace existing imageUrls with newly uploaded ones
+            body.imageUrls = urls;
         }
+
         const input = adminUpdateSchema.parse(body);
 
         if (input.status === 'scheduled') {
             const when = input.publishedAt ? new Date(input.publishedAt) : null;
-            if (!when) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'publishedAt required for scheduled post' } });
+            if (!when) {
+                return res.status(422).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'publishedAt required for scheduled post' },
+                });
+            }
             if (when <= new Date()) input.status = 'published';
         }
 
         const post = await BlogPost.findById(id);
-        if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                error: { code: 'NOT_FOUND', message: 'Post not found' },
+            });
+        }
+
+        // ✅ Update fields
         if (input.title) post.title = input.title;
         if (input.subtitle !== undefined) post.subtitle = input.subtitle;
+
         if (input.contentHtml) {
             post.contentHtml = sanitizeHtml(input.contentHtml);
             post.readingTimeMinutes = computeReadTimeMinutesFromHtml(post.contentHtml);
             post.summary = post.contentHtml.replace(/<[^>]+>/g, '').slice(0, 250);
         }
+
         if (input.bannerImageUrl !== undefined) post.bannerImageUrl = input.bannerImageUrl;
-        if (input.imageUrls) post.imageUrls = input.imageUrls;
+
+        // ✅ Replace imageUrls instead of appending
+        if (Array.isArray(input.imageUrls)) {
+            post.imageUrls = input.imageUrls;
+        }
+
         if (input.categoryId !== undefined) post.category = input.categoryId;
-        if (input.tags) post.tags = input.tags;
+        if (Array.isArray(input.tags)) post.tags = input.tags;
         if (input.status) post.status = input.status;
-        if (input.publishedAt !== undefined) post.publishedAt = input.publishedAt ? new Date(input.publishedAt) : undefined;
+        if (input.publishedAt !== undefined)
+            post.publishedAt = input.publishedAt ? new Date(input.publishedAt) : undefined;
         if (input.authorId) post.author = input.authorId;
+
+        // Slug update
         if (input.title) {
             let baseSlug = slugify(input.title, { lower: true, strict: true });
             let slug = baseSlug;
@@ -324,10 +367,17 @@ export async function adminUpdatePost(req, res, next) {
             }
             post.slug = slug;
         }
+
         await post.save();
+
         res.json({ success: true, post });
     } catch (err) {
-        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        if (err instanceof z.ZodError) {
+            return res.status(422).json({
+                success: false,
+                error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() },
+            });
+        }
         return next(err);
     }
 }

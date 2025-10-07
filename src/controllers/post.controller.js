@@ -96,7 +96,7 @@ const createSchema = z.object({
     imageUrls: z.array(z.string().url()).optional(),
     categoryId: z.string().optional(),
     tags: z.array(z.string()).optional(),
-    status: z.enum(['draft', 'published']).default('published'),
+    status: z.enum(['draft', 'published', 'scheduled']).default('published'),
     publishedAt: z.string().optional(),
 });
 
@@ -179,46 +179,81 @@ export async function updatePost(req, res, next) {
     try {
         const { id } = req.params;
         const body = { ...req.body };
+
+        // Normalize input arrays
         if (typeof body.imageUrls === 'string') body.imageUrls = [body.imageUrls];
         if (typeof body.tags === 'string') body.tags = [body.tags];
         if (Array.isArray(body.tags)) body.tags = body.tags.filter(Boolean);
         if (Array.isArray(body.imageUrls)) body.imageUrls = body.imageUrls.filter(Boolean);
 
-        // Handle new uploads, append to imageUrls if provided
+        // Handle file uploads (replace mode)
         const files = req.files || {};
         const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+
+        // Banner image upload
         if (files.bannerImage && files.bannerImage[0]) {
             const file = files.bannerImage[0];
             if (!allowed.includes(file.mimetype)) {
-                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid banner image type' } });
+                return res.status(422).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'Invalid banner image type' },
+                });
             }
-            const uploaded = await uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-banners' });
+            const uploaded = await uploadBufferToS3({
+                buffer: file.buffer,
+                contentType: file.mimetype,
+                keyPrefix: 'post-banners',
+            });
             body.bannerImageUrl = uploaded.publicUrl;
         }
+
+        // Replace all imageUrls with newly uploaded ones
         if (files.images && Array.isArray(files.images) && files.images.length > 0) {
             const uploads = [];
             for (const file of files.images) {
                 if (!allowed.includes(file.mimetype)) continue;
-                uploads.push(uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-images' }));
+                uploads.push(
+                    uploadBufferToS3({
+                        buffer: file.buffer,
+                        contentType: file.mimetype,
+                        keyPrefix: 'post-images',
+                    })
+                );
             }
             const results = await Promise.all(uploads);
-            const urls = results.map(r => r.publicUrl);
-            body.imageUrls = Array.isArray(body.imageUrls) ? [...body.imageUrls, ...urls] : urls;
+            const urls = results.map((r) => r.publicUrl);
+            // 🔁 Replace mode instead of append
+            body.imageUrls = urls;
         }
 
         const input = updateSchema.parse(body);
+
+        // Handle scheduled posts
         if (input.status === 'scheduled') {
             const when = input.publishedAt ? new Date(input.publishedAt) : null;
             if (!when) {
-                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'publishedAt required for scheduled post' } });
+                return res.status(422).json({
+                    success: false,
+                    error: { code: 'VALIDATION_ERROR', message: 'publishedAt required for scheduled post' },
+                });
             }
-            if (when <= new Date()) {
-                input.status = 'published';
-            }
+            if (when <= new Date()) input.status = 'published';
         }
+
+        // Fetch post
         const post = await BlogPost.findById(id);
-        if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
-        if (String(post.author) !== req.user.id && req.user.role !== 'admin') return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot edit' } });
+        if (!post)
+            return res
+                .status(404)
+                .json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
+
+        // Permission check
+        if (String(post.author) !== req.user.id && req.user.role !== 'admin')
+            return res
+                .status(403)
+                .json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot edit' } });
+
+        // Apply updates
         if (input.title) post.title = input.title;
         if (input.subtitle !== undefined) post.subtitle = input.subtitle;
         if (input.contentHtml) {
@@ -226,10 +261,18 @@ export async function updatePost(req, res, next) {
             post.readingTimeMinutes = computeReadTimeMinutesFromHtml(post.contentHtml);
         }
         if (input.bannerImageUrl !== undefined) post.bannerImageUrl = input.bannerImageUrl;
-        if (input.imageUrls) post.imageUrls = input.imageUrls;
+
+        // ✅ Replace imageUrls instead of appending
+        if (Array.isArray(input.imageUrls)) {
+            post.imageUrls = input.imageUrls;
+        }
+
         if (input.categoryId !== undefined) post.category = input.categoryId;
         if (input.status) post.status = input.status;
-        if (input.publishedAt !== undefined) post.publishedAt = input.publishedAt ? new Date(input.publishedAt) : undefined;
+        if (input.publishedAt !== undefined)
+            post.publishedAt = input.publishedAt ? new Date(input.publishedAt) : undefined;
+
+        // Slug update logic
         if (input.title) {
             let baseSlug = slugify(input.title, { lower: true, strict: true });
             let slug = baseSlug;
@@ -239,10 +282,15 @@ export async function updatePost(req, res, next) {
             }
             post.slug = slug;
         }
+
         await post.save();
         res.json({ success: true, post });
     } catch (err) {
-        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        if (err instanceof z.ZodError)
+            return res.status(422).json({
+                success: false,
+                error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() },
+            });
         return next(err);
     }
 }
