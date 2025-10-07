@@ -8,7 +8,7 @@ import User from '../models/User.model.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.get('/:userId/posts', listUserPosts);
+router.get('/posts',authMiddleware, listUserPosts);
 router.get('/me/profile', authMiddleware, getMyProfile);
 router.patch('/me/profile', authMiddleware, upload.single('avatar'), updateMyProfile);
 router.get('/me/dashboard', authMiddleware, userDashboard);

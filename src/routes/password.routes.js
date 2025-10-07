@@ -4,7 +4,7 @@ import { forgotPassword, resetPassword, forgotPasswordOtp, resendOtp, verifyOtp,
 const router = Router();
 
 router.post('/forgot', forgotPassword);
-router.post('/reset', resetPassword); // now expects { email, otp, newPassword }
+router.post('/reset', resetPassword);   
 router.post('/otp/forgot', forgotPasswordOtp);
 router.post('/otp/resend', resendOtp);
 router.post('/otp/verify', verifyOtp);

@@ -85,7 +85,7 @@ export async function listAllPosts(req, res, next) {
         const page = Math.max(parseInt(input.page || "1", 10), 1);
         const limit = Math.min(Math.max(parseInt(input.limit || "20", 10), 1), 100);
 
-        const match = {};
+        const match = { status: 'published' };
         console.log('userData :>> ', userData);
         // ✅ Determine author logic (priority: input.userId > req.user.id)
         let authorId = input.userId ? input.userId : userData?.id;

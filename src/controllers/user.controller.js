@@ -8,7 +8,8 @@ const schema = z.object({ page: z.string().optional(), limit: z.string().optiona
 
 export async function listUserPosts(req, res, next) {
     try {
-        const { userId } = req.params;
+        console.log('req.user :>> ', req.user);
+        const userId  = req.user.id;
         const input = schema.parse(req.query);
         const page = Math.max(parseInt(input.page || '1', 10), 1);
         const limit = Math.min(Math.max(parseInt(input.limit || '10', 10), 1), 50);
