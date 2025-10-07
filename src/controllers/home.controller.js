@@ -36,7 +36,7 @@ export async function home(req, res, next) {
             BlogPost.find(publishedMatch)
                 .sort({ views: -1 })
                 .limit(6)
-                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags createdAt publishedAt')
                 .populate('author', 'fullName email avatarUrl role')
                 .populate('category', 'name slug'),
 
@@ -86,7 +86,7 @@ export async function home(req, res, next) {
                 .sort({ publishedAt: -1 })
                 .skip((page - 1) * limit)
                 .limit(parseInt(limit))
-                .select('title slug bannerImageUrl summary views readingTimeMinutes tags')
+                .select('title slug bannerImageUrl summary views readingTimeMinutes tags createdAt publishedAt')
                 .populate('author', 'fullName email avatarUrl role')
                 .populate('category', 'name slug'),
 
@@ -170,7 +170,7 @@ export async function listAllPosts(req, res, next) {
             const pipeline = [
                 { $match: match },
                 { $sample: { size: limit } },
-                { $project: { title: 1, slug: 1, bannerImageUrl: 1, summary: 1, publishedAt: 1, views: 1, category: 1, author: 1, readingTimeMinutes: 1, tags: 1 } },
+                { $project: { title: 1, slug: 1, bannerImageUrl: 1, summary: 1, publishedAt: 1, views: 1, category: 1, author: 1, readingTimeMinutes: 1, tags: 1, createdAt: 1 } },
             ];
             let data = await BlogPost.aggregate(pipeline);
             // Populate category after aggregate
