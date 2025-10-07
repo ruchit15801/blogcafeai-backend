@@ -4,6 +4,8 @@ import slugify from 'slugify';
 import sanitizeHtml from 'sanitize-html';
 import User from '../models/User.model.js';
 import BlogPost from '../models/BlogPost.model.js';
+import Category from '../models/Category.model.js';
+import Comment from '../models/Comment.model.js';
 import { computeReadTimeMinutesFromHtml } from '../utils/readtime.js';
 import { uploadBufferToS3 } from '../utils/s3.js';
 import bcrypt from 'bcrypt';
@@ -612,6 +614,30 @@ export async function fetchPostById(req, res, next) {
             .populate('author', 'fullName email avatarUrl role');
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
         res.json({ success: true, post });
+    } catch (err) {
+        return next(err);
+    }
+}
+
+export async function adminDashboard(req, res, next) {
+    try {
+        const adminId = req.user?.id;
+        const [
+            myPosts,
+            totalUsers,
+            totalScheduledPosts,
+            totalCategories,
+            totalPosts,
+            totalPublishedPosts,
+        ] = await Promise.all([
+            BlogPost.countDocuments(adminId ? { author: adminId } : {}),
+            User.countDocuments({}),
+            BlogPost.countDocuments({ status: 'scheduled' }),
+            Category.countDocuments({}),
+            BlogPost.countDocuments({}),
+            BlogPost.countDocuments({ status: 'published' }),
+        ]);
+        return res.json({ success: true, data: { myPosts, users: totalUsers, scheduledPosts: totalScheduledPosts, categories: totalCategories, posts: totalPosts, publishedPosts: totalPublishedPosts } });
     } catch (err) {
         return next(err);
     }

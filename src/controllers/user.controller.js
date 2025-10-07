@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import BlogPost from '../models/BlogPost.model.js';
 import User from '../models/User.model.js';
+import Comment from '../models/Comment.model.js';
 import { uploadBufferToS3 } from '../utils/s3.js';
 
 const schema = z.object({ page: z.string().optional(), limit: z.string().optional() });
@@ -58,6 +59,21 @@ export async function updateMyProfile(req, res, next) {
         res.json({ success: true, data: { _id: user._id, fullName: user.fullName, email: user.email, avatarUrl: user.avatarUrl, role: user.role } });
     } catch (err) {
         if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        return next(err);
+    }
+}
+
+export async function userDashboard(req, res, next) {
+    try {
+        const userId = req.user.id;
+        const [myPosts, myScheduled, myLikes, myComments] = await Promise.all([
+            BlogPost.countDocuments({ author: userId }),
+            BlogPost.countDocuments({ author: userId, status: 'scheduled' }),
+            BlogPost.countDocuments({ author: userId, likes: { $gt: 0 } }),
+            Comment.countDocuments({ author: userId }),
+        ]);
+        res.json({ success: true, data: { myPosts, scheduledPosts: myScheduled, likes: myLikes, comments: myComments } });
+    } catch (err) {
         return next(err);
     }
 }
