@@ -323,6 +323,97 @@ export async function publishPost(req, res, next) {
     }
 }
 
+export async function listScheduledPosts(req, res, next) {
+    try {
+        const input = listScheduledSchema.parse(req.query);
+        const page = Math.max(parseInt(input.page || '1', 10), 1);
+        const limit = Math.min(Math.max(parseInt(input.limit || '20', 10), 1), 100);
+        const match = { status: 'scheduled' };
+        if (input.userId) match.author = input.userId;
+        if (input.q) match.title = { $regex: input.q, $options: 'i' };
+
+        const [posts, total] = await Promise.all([
+            BlogPost.find(match)
+                .sort({ publishedAt: 1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .select('title status author readingTimeMinutes tags bannerImageUrl imageUrls createdAt publishedAt isFeatured views slug')
+                .populate('author', 'fullName email avatarUrl role'),
+            BlogPost.countDocuments(match),
+        ]);
+        res.json({ success: true, data: posts, meta: { page, limit, total } });
+    } catch (err) {
+        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid query', details: err.flatten() } });
+        return next(err);
+    }
+}
+
+const createScheduledSchema = createSchema.extend({ status: z.literal('scheduled'), publishedAt: z.string() });
+
+export async function userCreateScheduledPost(req, res, next) {
+    try {
+        const body = { ...req.body };
+        if (typeof body.imageUrls === 'string') body.imageUrls = [body.imageUrls];
+        if (typeof body.tags === 'string') body.tags = [body.tags];
+        if (Array.isArray(body.tags)) body.tags = body.tags.filter(Boolean);
+        if (Array.isArray(body.imageUrls)) body.imageUrls = body.imageUrls.filter(Boolean);
+        // Handle file uploads if provided
+        const files = req.files || {};
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+        if (files.bannerImage && files.bannerImage[0]) {
+            const file = files.bannerImage[0];
+            if (!allowed.includes(file.mimetype)) {
+                return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid banner image type' } });
+            }
+            const uploaded = await uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-banners' });
+            body.bannerImageUrl = uploaded.publicUrl;
+        }
+        if (files.images && Array.isArray(files.images) && files.images.length > 0) {
+            const uploads = [];
+            for (const file of files.images) {
+                if (!allowed.includes(file.mimetype)) continue;
+                uploads.push(uploadBufferToS3({ buffer: file.buffer, contentType: file.mimetype, keyPrefix: 'post-images' }));
+            }
+            const results = await Promise.all(uploads);
+            const urls = results.map(r => r.publicUrl);
+            body.imageUrls = Array.isArray(body.imageUrls) ? [...body.imageUrls, ...urls] : urls;
+        }
+        const input = createScheduledSchema.parse(body);
+        // Force scheduled; publishedAt must be in future
+        const when = new Date(input.publishedAt);
+        if (!(when instanceof Date) || Number.isNaN(when.getTime())) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid publishedAt' } });
+        if (when <= new Date()) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'publishedAt must be in the future' } });
+
+        let baseSlug = slugify(input.title, { lower: true, strict: true });
+        let slug = baseSlug;
+        let n = 1;
+        while (await BlogPost.exists({ slug })) {
+            slug = `${baseSlug}-${n++}`;
+        }
+        const sanitized = sanitizeHtml(input.contentHtml);
+        const readingTimeMinutes = computeReadTimeMinutesFromHtml(sanitized);
+        const post = await BlogPost.create({
+            title: input.title,
+            subtitle: input.subtitle,
+            contentHtml: sanitized,
+            summary: sanitized.replace(/<[^>]+>/g, '').slice(0, 250),
+            bannerImageUrl: input.bannerImageUrl,
+            imageUrls: input.imageUrls || [],
+            category: input.categoryId || undefined,
+            tags: input.tags || [],
+            author: input.authorId || req.user.id,
+            status: 'scheduled',
+            publishedAt: when,
+            slug,
+            readingTimeMinutes,
+        });
+        res.status(201).json({ success: true, post });
+    } catch (err) {
+        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        return next(err);
+    }
+}
+
 export async function getPostMeta(req, res, next) {
     try {
         const { id } = req.params;

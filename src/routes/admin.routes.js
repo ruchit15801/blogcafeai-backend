@@ -5,6 +5,7 @@ import { listUsers, listAllPosts, searchUsersByName, adminCreatePost, adminUpdat
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+router.get('/posts/scheduled', listScheduledPosts);
 router.get('/posts/:id', fetchPostById);
 
 router.use(authMiddleware, requireRole('admin'));
@@ -17,7 +18,6 @@ router.get('/posts', listAllPosts);
 router.post('/posts', upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), adminCreatePost);
 router.patch('/posts/:id', upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), adminUpdatePost);
 router.delete('/posts/:id', adminDeletePost);
-router.get('/posts/scheduled', listScheduledPosts);
 router.post('/posts/scheduled', upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), adminCreateScheduledPost);
 router.post('/posts/:id/publish', adminPublishPostNow);
 router.patch('/users/:id', updateUser);

@@ -12,6 +12,8 @@ import {
     deletePost,
     publishPost,
     getPostMeta,
+    listScheduledPosts,
+    userCreateScheduledPost,
 } from '../controllers/post.controller.js';
 import { fetchPostById } from '../controllers/admin.controller.js';
 
@@ -23,6 +25,8 @@ router.get('/:slug', getBySlug);
 router.post('/', authMiddleware, upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), createPost);
 router.patch('/:id', authMiddleware, upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), updatePost);
 router.delete('/:id', authMiddleware, deletePost);
+router.get('/scheduled', listScheduledPosts);
+router.post('/scheduled', authMiddleware, upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), userCreateScheduledPost);
 router.post('/:id/publish', authMiddleware, publishPost);
 router.get('/:id/meta', getPostMeta);
 
