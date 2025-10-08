@@ -37,7 +37,7 @@ export async function home(req, res, next) {
                 .sort({ views: -1 })
                 .limit(6)
                 .select('title slug bannerImageUrl summary views readingTimeMinutes tags createdAt publishedAt')
-                .populate('author', 'fullName email avatarUrl role')
+                .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl')
                 .populate('category', 'name slug'),
 
             // 🔥 Top Commented Blogs
@@ -87,7 +87,7 @@ export async function home(req, res, next) {
                 .skip((page - 1) * limit)
                 .limit(parseInt(limit))
                 .select('title slug bannerImageUrl summary views readingTimeMinutes tags createdAt publishedAt')
-                .populate('author', 'fullName email avatarUrl role')
+                .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl')
                 .populate('category', 'name slug'),
 
             // Count total for pagination
@@ -102,11 +102,11 @@ export async function home(req, res, next) {
             BlogPost.find({ _id: { $in: commentedIds }, ...publishedMatch })
                 .select('title slug bannerImageUrl summary views readingTimeMinutes tags category author')
                 .populate('category', 'name slug')
-                .populate('author', 'fullName email avatarUrl role'),
+                .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl'),
             BlogPost.find({ _id: { $in: likedIds }, ...publishedMatch })
                 .select('title slug bannerImageUrl summary views readingTimeMinutes tags category author')
                 .populate('category', 'name slug')
-                .populate('author', 'fullName email avatarUrl role'),
+                .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl'),
         ]);
 
         // Attach counts
@@ -176,7 +176,7 @@ export async function listAllPosts(req, res, next) {
             // Populate category after aggregate
             data = await BlogPost.populate(data, [
                 { path: 'category', select: 'name slug' },
-                { path: 'author', select: 'fullName email avatarUrl role' },
+                { path: 'author', select: 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl' },
             ]);
             // total count for pagination (approximate when random)
             const total = await BlogPost.countDocuments(match);
@@ -194,7 +194,7 @@ export async function listAllPosts(req, res, next) {
                 .limit(limit)
                 .select('title slug bannerImageUrl tags readingTimeMinutes summary publishedAt views author category')
                 .populate('category', 'name slug')
-                .populate('author', 'fullName email avatarUrl role'),
+                .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl'),
             BlogPost.countDocuments(match),
         ]);
         return res.json({ success: true, data, meta: { page, limit, total } });

@@ -581,11 +581,17 @@ export async function changeUserPassword(req, res, next) {
         return next(err);
     }
 }
-const adminProfileUpdateSchema = z.object({ fullName: z.string().min(2).max(80).optional() });
+const adminProfileUpdateSchema = z.object({
+    fullName: z.string().min(2).max(80).optional(),
+    twitterUrl: z.string().url().optional(),
+    facebookUrl: z.string().url().optional(),
+    instagramUrl: z.string().url().optional(),
+    linkedinUrl: z.string().url().optional(),
+});
 
 export async function getAdminProfile(req, res, next) {
     try {
-        const user = await User.findById(req.user.id).select('fullName email avatarUrl role createdAt bio');
+        const user = await User.findById(req.user.id).select('fullName email avatarUrl role createdAt bio twitterUrl facebookUrl instagramUrl linkedinUrl');
         if (!user) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
         res.json({ success: true, data: user });
     } catch (err) {
@@ -600,6 +606,10 @@ export async function updateAdminProfile(req, res, next) {
         if (!user) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'User not found' } });
 
         if (input.fullName) user.fullName = input.fullName;
+        if (input.twitterUrl !== undefined) user.twitterUrl = input.twitterUrl;
+        if (input.facebookUrl !== undefined) user.facebookUrl = input.facebookUrl;
+        if (input.instagramUrl !== undefined) user.instagramUrl = input.instagramUrl;
+        if (input.linkedinUrl !== undefined) user.linkedinUrl = input.linkedinUrl;
 
         // optional avatar upload
         const file = req.file;
@@ -613,7 +623,7 @@ export async function updateAdminProfile(req, res, next) {
         }
 
         await user.save();
-        res.json({ success: true, data: { _id: user._id, fullName: user.fullName, email: user.email, avatarUrl: user.avatarUrl, role: user.role } });
+        res.json({ success: true, data: { _id: user._id, fullName: user.fullName, email: user.email, avatarUrl: user.avatarUrl, role: user.role, twitterUrl: user.twitterUrl, facebookUrl: user.facebookUrl, instagramUrl: user.instagramUrl, linkedinUrl: user.linkedinUrl } });
     } catch (err) {
         if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
         return next(err);

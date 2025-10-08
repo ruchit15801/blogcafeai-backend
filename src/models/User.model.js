@@ -10,6 +10,10 @@ const userSchema = new mongoose.Schema(
         avatarUrl: { type: String },
         isEmailVerified: { type: Boolean, default: false },
         favorites: [{ type: mongoose.Schema.Types.ObjectId, ref: 'BlogPost' }],
+        twitterUrl: { type: String },
+        facebookUrl: { type: String },
+        instagramUrl: { type: String },
+        linkedinUrl: { type: String },
     },
     { timestamps: true }
 );

@@ -51,7 +51,7 @@ export async function getBySlug(req, res, next) {
     try {
         const { slug } = req.params;
         const post = await BlogPost.findOne({ slug, status: 'published', publishedAt: { $lte: new Date() } })
-            .populate('author', 'fullName')
+            .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl')
             .populate('category', 'name slug')
             .populate('tags', 'name slug');
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
@@ -418,8 +418,7 @@ export async function getPostMeta(req, res, next) {
     try {
         const { id } = req.params;
         const post = await BlogPost.findOne({ _id: id, status: 'published', $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] })
-            // .select('_id views author category')
-            .populate('author', 'fullName email avatarUrl role')
+            .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl')
             .populate('category', 'name slug');
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
         // increment view count
