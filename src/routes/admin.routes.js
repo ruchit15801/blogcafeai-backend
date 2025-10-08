@@ -5,6 +5,7 @@ import { listUsers, listAllPosts, searchUsersByName, adminCreatePost, adminUpdat
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+router.get('/posts/:id', fetchPostById);
 
 router.use(authMiddleware, requireRole('admin'));
 
@@ -24,7 +25,6 @@ router.patch('/users/:id/password', changeUserPassword);
 router.delete('/users/:id', deleteUser);
 router.post('/posts/:id/feature', toggleFeatured);
 
-router.get('/posts/:id', fetchPostById);
 router.get('/contacts', listContactMessages);
 router.patch('/contacts/:id/read', markContactMessageRead);
 router.get('/dashboard', adminDashboard);
