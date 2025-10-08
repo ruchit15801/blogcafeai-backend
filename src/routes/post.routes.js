@@ -13,10 +13,11 @@ import {
     publishPost,
     getPostMeta,
 } from '../controllers/post.controller.js';
+import { fetchPostById } from '../controllers/admin.controller.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
-
+router.get('/:id', fetchPostById);
 router.get('/', listPosts);
 router.get('/:slug', getBySlug);
 router.post('/', authMiddleware, upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), createPost);
@@ -24,6 +25,7 @@ router.patch('/:id', authMiddleware, upload.fields([{ name: 'bannerImage', maxCo
 router.delete('/:id', authMiddleware, deletePost);
 router.post('/:id/publish', authMiddleware, publishPost);
 router.get('/:id/meta', getPostMeta);
+
 
 // Comments
 const commentSchema = z.object({ content: z.string().min(1).max(2000) });
