@@ -156,8 +156,16 @@ export async function listAllPosts(req, res, next) {
         const startDate = req.query.startDate ? new Date(req.query.startDate) : undefined;
         const endDate = req.query.endDate ? new Date(req.query.endDate) : undefined;
 
-        const publishedNowOrUnset = { $or: [{ publishedAt: { $lte: new Date() } }, { publishedAt: null }, { publishedAt: { $exists: false } }] };
+        // Match conditions
+        const publishedNowOrUnset = {
+            $or: [
+                { publishedAt: { $lte: new Date() } },
+                { publishedAt: null },
+                { publishedAt: { $exists: false } }
+            ]
+        };
         const match = { status: 'published', ...publishedNowOrUnset };
+
         if (category) match.category = category;
         if (tag) match.tags = tag;
         if (startDate || endDate) {
@@ -166,27 +174,53 @@ export async function listAllPosts(req, res, next) {
             if (endDate) match.publishedAt.$lte = endDate;
         }
 
+        // Handle random sorting separately (no proper pagination possible here)
         if (sort === 'random') {
-            const pipeline = [
+            const total = await BlogPost.countDocuments(match);
+            const data = await BlogPost.aggregate([
                 { $match: match },
                 { $sample: { size: limit } },
-                { $project: { title: 1, slug: 1, bannerImageUrl: 1, summary: 1, publishedAt: 1, views: 1, category: 1, author: 1, readingTimeMinutes: 1, tags: 1, createdAt: 1 } },
-            ];
-            let data = await BlogPost.aggregate(pipeline);
-            // Populate category after aggregate
-            data = await BlogPost.populate(data, [
+                {
+                    $project: {
+                        title: 1,
+                        slug: 1,
+                        bannerImageUrl: 1,
+                        summary: 1,
+                        publishedAt: 1,
+                        views: 1,
+                        category: 1,
+                        author: 1,
+                        readingTimeMinutes: 1,
+                        tags: 1,
+                        createdAt: 1,
+                    },
+                },
+            ]);
+
+            const populated = await BlogPost.populate(data, [
                 { path: 'category', select: 'name slug' },
                 { path: 'author', select: 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl' },
             ]);
-            // total count for pagination (approximate when random)
-            const total = await BlogPost.countDocuments(match);
-            return res.json({ success: true, data, meta: { page, limit, total, random: true } });
+
+            return res.json({
+                success: true,
+                data: populated,
+                meta: {
+                    page,
+                    limit,
+                    total,
+                    random: true,
+                    totalPages: Math.ceil(total / limit),
+                },
+            });
         }
 
+        // Sort options
         let sortObj = { publishedAt: -1 };
         if (sort === 'views') sortObj = { views: -1, publishedAt: -1 };
         if (sort === 'featured') sortObj = { isFeatured: -1, publishedAt: -1 };
 
+        // Main query + total count
         const [data, total] = await Promise.all([
             BlogPost.find(match)
                 .sort(sortObj)
@@ -197,8 +231,21 @@ export async function listAllPosts(req, res, next) {
                 .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl'),
             BlogPost.countDocuments(match),
         ]);
-        return res.json({ success: true, data, meta: { page, limit, total } });
+
+        return res.json({
+            success: true,
+            data,
+            meta: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+                hasNextPage: page * limit < total,
+                hasPrevPage: page > 1,
+            },
+        });
     } catch (err) {
+        console.error('listAllPosts error:', err);
         return next(err);
     }
 }
