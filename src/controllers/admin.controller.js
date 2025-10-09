@@ -669,7 +669,7 @@ export async function fetchPostById(req, res, next) {
     try {
         const { id } = req.params;
         const post = await BlogPost.findById(id)
-            .populate('author', 'fullName email avatarUrl role');
+            .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl');
         if (!post) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Post not found' } });
         res.json({ success: true, post });
     } catch (err) {
