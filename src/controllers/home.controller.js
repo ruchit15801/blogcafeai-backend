@@ -192,7 +192,7 @@ export async function listAllPosts(req, res, next) {
                 .sort(sortObj)
                 .skip((page - 1) * limit)
                 .limit(limit)
-                .select('title slug bannerImageUrl tags readingTimeMinutes summary publishedAt views author category')
+                .select('title slug bannerImageUrl tags readingTimeMinutes summary publishedAt views author category createdAt')
                 .populate('category', 'name slug')
                 .populate('author', 'fullName email avatarUrl role twitterUrl facebookUrl instagramUrl linkedinUrl'),
             BlogPost.countDocuments(match),
