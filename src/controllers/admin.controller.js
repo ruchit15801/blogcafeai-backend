@@ -86,10 +86,8 @@ export async function listAllPosts(req, res, next) {
         const limit = Math.min(Math.max(parseInt(input.limit || "20", 10), 1), 100);
 
         const match = { status: 'published' };
-        console.log('userData :>> ', userData);
         // ✅ Determine author logic (priority: input.userId > req.user.id)
         let authorId = input.userId ? input.userId : userData?.id;
-        console.log('authorId :>> ', authorId);
         if (authorId) {
             // Convert to ObjectId if valid
             if (mongoose.Types.ObjectId.isValid(authorId)) {
@@ -702,3 +700,42 @@ export async function adminDashboard(req, res, next) {
         return next(err);
     }
 }
+
+
+export async function userAllPost(req, res, next) {
+    try {
+        const q = listQuerySchema.parse(req.query);
+        const page = Math.max(parseInt(q.page || '1', 10), 1);
+        const limit = Math.min(Math.max(parseInt(q.limit || '10', 10), 1), 50);
+
+        const filter = { status: 'published' };
+
+        if (q.category) filter.category = q.category;
+        if (q.tag) filter.tags = q.tag;
+
+        let sort = { publishedAt: -1 };
+        if (q.sort === 'featured') sort = { isFeatured: -1, publishedAt: -1 };
+        if (q.sort === 'trending') sort = { trendScore: -1 };
+
+        const query = BlogPost.find(filter)
+            .populate('author', 'fullName')
+            .populate('category', 'name slug')
+            .populate('tags', 'name slug');
+
+        if (q.search) {
+            query.find({ $text: { $search: q.search } });
+        }
+
+        const [data, total] = await Promise.all([
+            query.sort(sort).skip((page - 1) * limit).limit(limit),
+            BlogPost.countDocuments(filter),
+        ]);
+
+        res.json({ success: true, data, meta: { page, limit, total } });
+    } catch (err) {
+        if (err instanceof z.ZodError)
+            return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid query', details: err.flatten() } });
+        return next(err);
+    }
+}
+

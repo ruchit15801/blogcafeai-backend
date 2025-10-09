@@ -8,6 +8,7 @@ import PostView from '../models/PostView.model.js';
 import Comment from '../models/Comment.model.js';
 import User from '../models/User.model.js';
 import { verifyAccessToken } from '../security/auth.js';
+import mongoose from 'mongoose';
 
 const listQuerySchema = z.object({
     page: z.string().optional(),
@@ -24,11 +25,12 @@ export async function listPosts(req, res, next) {
         const q = listQuerySchema.parse(req.query);
         const page = Math.max(parseInt(q.page || '1', 10), 1);
         const limit = Math.min(Math.max(parseInt(q.limit || '10', 10), 1), 50);
-        const now = new Date();
-        const filter = { status: 'published', publishedAt: { $lte: now } };
+        const filter = { status: 'published' };
         if (q.category) filter.category = q.category;
         if (q.tag) filter.tags = q.tag;
-        if (q.authorId) filter.author = q.authorId;
+        if (q.authorId) {
+            filter.author = new mongoose.Types.ObjectId(q.authorId);
+        }
         let sort = { publishedAt: -1 };
         if (q.sort === 'featured') sort = { isFeatured: -1, publishedAt: -1 };
         if (q.sort === 'trending') sort = { trendScore: -1 };
@@ -165,6 +167,7 @@ export async function createPost(req, res, next) {
             publishedAt: input.publishedAt ? new Date(input.publishedAt) : undefined,
             slug,
             readingTimeMinutes,
+            tags: input.tags || [],
         });
         res.status(201).json({ success: true, post: { _id: post._id, title: post.title, slug: post.slug, author: { _id: req.user.id }, status: post.status, publishedAt: post.publishedAt || null } });
     } catch (err) {
@@ -267,6 +270,10 @@ export async function updatePost(req, res, next) {
             post.imageUrls = input.imageUrls;
         }
 
+        if (Array.isArray(input.tags)) {
+            post.tags = input.tags; 
+        }
+
         if (input.categoryId !== undefined) post.category = input.categoryId;
         if (input.status) post.status = input.status;
         if (input.publishedAt !== undefined)
@@ -323,6 +330,8 @@ export async function publishPost(req, res, next) {
     }
 }
 
+const listScheduledSchema = z.object({ page: z.string().optional(), limit: z.string().optional(), q: z.string().optional(), userId: z.string().optional() });
+
 export async function listScheduledPosts(req, res, next) {
     try {
         const input = listScheduledSchema.parse(req.query);
@@ -341,7 +350,7 @@ export async function listScheduledPosts(req, res, next) {
                 .populate('author', 'fullName email avatarUrl role'),
             BlogPost.countDocuments(match),
         ]);
-        res.json({ success: true, data: posts, meta: { page, limit, total } });
+        res.json({ success: true, data: posts, total: total, meta: { page, limit, total } });
     } catch (err) {
         if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid query', details: err.flatten() } });
         return next(err);

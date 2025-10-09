@@ -19,16 +19,16 @@ import { fetchPostById } from '../controllers/admin.controller.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
-router.get('/:id', fetchPostById);
+router.get('/scheduled', listScheduledPosts);
 router.get('/', listPosts);
-router.get('/:slug', getBySlug);
 router.post('/', authMiddleware, upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), createPost);
 router.patch('/:id', authMiddleware, upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), updatePost);
 router.delete('/:id', authMiddleware, deletePost);
-router.get('/scheduled', listScheduledPosts);
 router.post('/scheduled', authMiddleware, upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), userCreateScheduledPost);
 router.post('/:id/publish', authMiddleware, publishPost);
 router.get('/:id/meta', getPostMeta);
+router.get('/:id', fetchPostById);
+router.get('/:slug', getBySlug);
 
 
 // Comments
