@@ -10,6 +10,7 @@ import { computeReadTimeMinutesFromHtml } from '../utils/readtime.js';
 import { uploadBufferToS3 } from '../utils/s3.js';
 import bcrypt from 'bcrypt';
 import ContactMessage from '../models/ContactMessage.model.js';
+import { sendEmail } from '../utils/mailer.js';
 
 const listSchema = z.object({ role: z.string().optional(), q: z.string().optional(), page: z.string().optional(), limit: z.string().optional() });
 
@@ -650,23 +651,23 @@ export async function listContactMessages(req, res, next) {
 }
 
 export async function fetchContactMessageById(req, res, next) {
-  try {
-    const { id } = req.params;
+    try {
+        const { id } = req.params;
 
-    const msg = await ContactMessage.findById(id);
-    if (!msg)
-      return res.status(404).json({
-        success: false,
-        error: { code: "NOT_FOUND", message: "Message not found" },
-      });
+        const msg = await ContactMessage.findById(id);
+        if (!msg)
+            return res.status(404).json({
+                success: false,
+                error: { code: "NOT_FOUND", message: "Message not found" },
+            });
 
-    res.json({
-      success: true,
-      data: msg,
-    });
-  } catch (err) {
-    return next(err);
-  }
+        res.json({
+            success: true,
+            data: msg,
+        });
+    } catch (err) {
+        return next(err);
+    }
 }
 
 
@@ -684,6 +685,33 @@ export async function markContactMessageRead(req, res, next) {
     }
 }
 
+
+// Admin: reply to a contact message via email
+const replyContactSchema = z.object({ subject: z.string().min(1), messageHtml: z.string().min(1).or(z.string().min(1)) });
+export async function replyToContactMessage(req, res, next) {
+    try {
+        const { id } = req.params;
+        const input = replyContactSchema.parse(req.body || {});
+        const msg = await ContactMessage.findById(id);
+        if (!msg) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Message not found' } });
+
+        const to = msg.email;
+        const subject = input.subject;
+        const html = input.messageHtml;
+        await sendEmail({ to, subject, html });
+
+        // optionally mark as read after reply
+        if (msg.status !== 'read') {
+            msg.status = 'read';
+            await msg.save();
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
+        return next(err);
+    }
+}
 
 // Admin: get single post by ID
 export async function fetchPostById(req, res, next) {
