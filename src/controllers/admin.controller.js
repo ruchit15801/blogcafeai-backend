@@ -649,6 +649,27 @@ export async function listContactMessages(req, res, next) {
     }
 }
 
+export async function fetchContactMessageById(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const msg = await ContactMessage.findById(id);
+    if (!msg)
+      return res.status(404).json({
+        success: false,
+        error: { code: "NOT_FOUND", message: "Message not found" },
+      });
+
+    res.json({
+      success: true,
+      data: msg,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+
 // Admin: mark contact message as read
 export async function markContactMessageRead(req, res, next) {
     try {
