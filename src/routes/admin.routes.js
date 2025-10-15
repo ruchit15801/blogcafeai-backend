@@ -20,7 +20,7 @@ router.patch('/posts/:id', upload.fields([{ name: 'bannerImage', maxCount: 1 }, 
 router.delete('/posts/:id', adminDeletePost);
 router.post('/posts/scheduled', upload.fields([{ name: 'bannerImage', maxCount: 1 }, { name: 'images', maxCount: 10 }]), adminCreateScheduledPost);
 router.post('/posts/:id/publish', adminPublishPostNow);
-router.patch('/users/:id', updateUser);
+router.patch('/users/:id', upload.single('avatar'), updateUser);
 router.patch('/users/:id/password', changeUserPassword);
 router.delete('/users/:id', deleteUser);
 router.post('/posts/:id/feature', toggleFeatured);
