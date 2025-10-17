@@ -36,7 +36,8 @@ export async function listPosts(req, res, next) {
         if (q.sort === 'trending') sort = { trendScore: -1 };
         const query = BlogPost.find(filter).populate('author', 'fullName').populate('category', 'name slug').populate('tags', 'name slug');
         if (q.search) {
-            query.find({ $text: { $search: q.search } });
+            const searchRegex = new RegExp(q.search, 'i'); // 'i' for case-insensitive
+            query.find({ title: searchRegex });
         }
         const [data, total] = await Promise.all([
             query.sort(sort).skip((page - 1) * limit).limit(limit),
@@ -271,7 +272,7 @@ export async function updatePost(req, res, next) {
         }
 
         if (Array.isArray(input.tags)) {
-            post.tags = input.tags; 
+            post.tags = input.tags;
         }
 
         if (input.categoryId !== undefined) post.category = input.categoryId;
