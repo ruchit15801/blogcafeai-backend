@@ -52,7 +52,7 @@ export async function listUsers(req, res, next) {
             return {
                 _id: u._id,
                 fullName: u.fullName,
-                avatarUrl: u.avatarUrl,
+                avatarUrl: u.avatarUrl || u.avatar || '',
                 email: u.email,
                 role: u.role,
                 createdAt: u.createdAt,
@@ -505,7 +505,11 @@ export async function adminPublishPostNow(req, res, next) {
 }
 
 // user 
-const updateSchema = z.object({ role: z.enum(["user", "admin"]).optional(), fullName: z.string().min(1).optional() });
+const updateSchema = z.object({
+    role: z.enum(["user", "admin"]).optional(),
+    fullName: z.string().min(1).optional(),
+    avatar: z.string().url().optional(), 
+});
 
 export async function updateUser(req, res, next) {
     try {
@@ -517,9 +521,20 @@ export async function updateUser(req, res, next) {
                 error: { code: 'NOT_FOUND', message: 'User not found' }
             });
 
+        // Update fullName & role
         if (input.fullName) user.fullName = input.fullName;
-
         if (input.role) user.role = input.role;
+
+        // Update avatar if file uploaded
+        if (req.file) {
+            const { publicUrl } = await uploadBufferToS3({
+                buffer: req.file.buffer,
+                contentType: req.file.mimetype,
+                keyPrefix: `users/${user._id}/avatar`
+            });
+            user.avatar = publicUrl;
+            user.avatarUrl = publicUrl;
+        }
 
         await user.save();
 
@@ -529,7 +544,8 @@ export async function updateUser(req, res, next) {
                 _id: user._id,
                 fullName: user.fullName,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                avatar: user.avatar // new avatar URL
             }
         });
     } catch (err) {
@@ -541,6 +557,8 @@ export async function updateUser(req, res, next) {
         return next(err);
     }
 }
+
+
 
 export async function deleteUser(req, res) {
     await User.findByIdAndDelete(req.params.id);
@@ -700,13 +718,24 @@ export async function replyToContactMessage(req, res, next) {
         const html = input.messageHtml;
         await sendEmail({ to, subject, html });
 
-        // optionally mark as read after reply
-        if (msg.status !== 'read') {
-            msg.status = 'read';
-            await msg.save();
-        }
+        msg.sentEmail = {
+            subject: subject,
+            body: html,
+            sentAt: new Date().toISOString(),
+        };
 
-        res.json({ success: true });
+        // Mark as read
+        msg.status = 'read';
+
+        await msg.save();
+
+        // optionally mark as read after reply
+        // if (msg.status !== 'read') {
+        //     msg.status = 'read';
+        //     await msg.save();
+        // }
+
+        res.json({ success: true, data: msg });
     } catch (err) {
         if (err instanceof z.ZodError) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input', details: err.flatten() } });
         return next(err);
