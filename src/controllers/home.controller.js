@@ -3,6 +3,7 @@ import Comment from '../models/Comment.model.js';
 import User from '../models/User.model.js';
 import ContactMessage from '../models/ContactMessage.model.js';
 import { z } from 'zod';
+import mongoose from 'mongoose';
 
 export async function home(req, res, next) {
     try {
@@ -250,6 +251,114 @@ export async function listAllPosts(req, res, next) {
     }
 }
 
+export async function getPostsByAuthorId(req, res, next) {
+    try {
+        const { authorId } = req.params;
+        const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit || "12", 10), 1), 50);
+        const category = req.query.category | undefined;
+        const tag = req.query.tag | undefined;
+        const sort = (req.query.sort) || "latest"; 
+        const startDate = req.query.startDate ? new Date(req.query.startDate) : undefined;
+        const endDate = req.query.endDate ? new Date(req.query.endDate) : undefined;
+
+        if (!mongoose.Types.ObjectId.isValid(authorId)) {
+            return res.status(400).json({ success: false, error: "Invalid authorId" });
+        }
+
+        // Match conditions
+        const publishedNowOrUnset = {
+            $or: [
+                { publishedAt: { $lte: new Date() } },
+                { publishedAt: null },
+                { publishedAt: { $exists: false } }
+            ]
+        };
+
+        const match = { status: "published", ...publishedNowOrUnset, author: new mongoose.Types.ObjectId(authorId) };
+
+        if (category) match.category = category;
+        if (tag) match.tags = tag;
+        if (startDate || endDate) {
+            match.publishedAt = match.publishedAt || {};
+            if (startDate) match.publishedAt.$gte = startDate;
+            if (endDate) match.publishedAt.$lte = endDate;
+        }
+
+        // Random sorting separately
+        if (sort === "random") {
+            const total = await BlogPost.countDocuments(match);
+            const data = await BlogPost.aggregate([
+                { $match: match },
+                { $sample: { size: limit } },
+                {
+                    $project: {
+                        title: 1,
+                        slug: 1,
+                        bannerImageUrl: 1,
+                        summary: 1,
+                        publishedAt: 1,
+                        views: 1,
+                        category: 1,
+                        author: 1,
+                        readingTimeMinutes: 1,
+                        tags: 1,
+                        createdAt: 1,
+                    }
+                }
+            ]);
+
+            const populated = await BlogPost.populate(data, [
+                { path: "category", select: "name slug" },
+                { path: "author", select: "fullName email avatarUrl role" }
+            ]);
+
+            return res.json({
+                success: true,
+                data: populated,
+                meta: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.ceil(total / limit),
+                    random: true
+                }
+            });
+        }
+
+        // Sort options
+        let sortObj = { publishedAt: -1 };
+        if (sort === "views") sortObj = { views: -1, publishedAt: -1 };
+        if (sort === "featured") sortObj = { isFeatured: -1, publishedAt: -1 };
+
+        const [data, total] = await Promise.all([
+            BlogPost.find(match)
+                .sort(sortObj)
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .populate("category", "name slug")
+                .populate("author", "fullName email avatarUrl role")
+                .select("title slug bannerImageUrl tags readingTimeMinutes summary publishedAt views author category createdAt"),
+            BlogPost.countDocuments(match)
+        ]);
+
+        return res.json({
+            success: true,
+            data,
+            meta: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+                hasNextPage: page * limit < total,
+                hasPrevPage: page > 1
+            }
+        });
+    } catch (err) {
+        console.error("getPostsByAuthor error:", err);
+        return next(err);
+    }
+}
 
 // GET /api/home/trending-by-category
 // Query: categoriesLimit (default 9), postsPerCategory (default 5)
