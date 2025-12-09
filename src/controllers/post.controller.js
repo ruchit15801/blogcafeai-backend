@@ -95,8 +95,8 @@ const createSchema = z.object({
     title: z.string().min(3),
     subtitle: z.string().optional(),
     contentHtml: z.string().min(10),
-    bannerImageUrl: z.string().url().optional(),
-    imageUrls: z.array(z.string().url()).optional(),
+    bannerImageUrl: z.union([z.string().url(), z.literal('')]).optional(),
+    imageUrls: z.array(z.union([z.string().url(), z.literal('')])).optional(),
     categoryId: z.string().optional(),
     tags: z.array(z.string()).optional(),
     status: z.enum(['draft', 'published', 'scheduled']).default('published'),
@@ -135,6 +135,12 @@ export async function createPost(req, res, next) {
         }
 
         const input = createSchema.parse(body);
+        // Convert empty strings to undefined for optional image fields
+        if (input.bannerImageUrl === '') input.bannerImageUrl = undefined;
+        if (input.imageUrls) {
+            input.imageUrls = input.imageUrls.filter(url => url && url !== '');
+            if (input.imageUrls.length === 0) input.imageUrls = undefined;
+        }
         // Scheduling rules: if scheduled, require future publishedAt; if past/now, set to published
         if (input.status === 'scheduled') {
             const when = input.publishedAt ? new Date(input.publishedAt) : null;
@@ -231,6 +237,13 @@ export async function updatePost(req, res, next) {
         }
 
         const input = updateSchema.parse(body);
+
+        // Convert empty strings to undefined for optional image fields
+        if (input.bannerImageUrl === '') input.bannerImageUrl = undefined;
+        if (input.imageUrls) {
+            input.imageUrls = input.imageUrls.filter(url => url && url !== '');
+            if (input.imageUrls.length === 0) input.imageUrls = undefined;
+        }
 
         // Handle scheduled posts
         if (input.status === 'scheduled') {
@@ -389,6 +402,12 @@ export async function userCreateScheduledPost(req, res, next) {
             body.imageUrls = Array.isArray(body.imageUrls) ? [...body.imageUrls, ...urls] : urls;
         }
         const input = createScheduledSchema.parse(body);
+        // Convert empty strings to undefined for optional image fields
+        if (input.bannerImageUrl === '') input.bannerImageUrl = undefined;
+        if (input.imageUrls) {
+            input.imageUrls = input.imageUrls.filter(url => url && url !== '');
+            if (input.imageUrls.length === 0) input.imageUrls = undefined;
+        }
         // Force scheduled; publishedAt must be in future
         const when = new Date(input.publishedAt);
         if (!(when instanceof Date) || Number.isNaN(when.getTime())) return res.status(422).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid publishedAt' } });
